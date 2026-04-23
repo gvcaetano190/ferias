@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import platform
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,8 +20,15 @@ def desbloquear_usuario_ad(usuario_ad: str) -> dict:
 
 def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
     script_path = AD_DIR / script_name
+    shell_name = _resolve_powershell()
+    if not shell_name:
+        return _error_result(
+            usuario_ad,
+            "PowerShell não encontrado. Instale/use o PowerShell do Windows ou `pwsh`.",
+        )
+
     command = [
-        "pwsh",
+        shell_name,
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
@@ -30,7 +39,7 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
     ]
 
     try:
-        # O PowerShell retorna JSON para o Python fazer parse com segurança.
+        # O script devolve JSON para o Python interpretar sem depender de parsing frágil.
         result = subprocess.run(
             command,
             capture_output=True,
@@ -39,12 +48,18 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
             check=False,
         )
     except FileNotFoundError:
-        return _error_result(usuario_ad, "PowerShell (`pwsh`) não encontrado no ambiente.")
+        return _error_result(usuario_ad, f"Executável PowerShell não encontrado: {shell_name}")
     except subprocess.SubprocessError as exc:
         return _error_result(usuario_ad, f"Falha ao executar PowerShell: {exc}")
 
     stdout = (result.stdout or "").strip()
     stderr = (result.stderr or "").strip()
+
+    if result.returncode != 0 and not stdout:
+        return _error_result(
+            usuario_ad,
+            stderr or f"Script PowerShell retornou código {result.returncode}.",
+        )
 
     if not stdout:
         return _error_result(usuario_ad, stderr or "Script não retornou saída JSON.")
@@ -56,6 +71,8 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
 
     if stderr and payload.get("success"):
         payload["message"] = f"{payload.get('message', '')} | stderr: {stderr}".strip(" |")
+    elif stderr and not payload.get("success") and not payload.get("message"):
+        payload["message"] = stderr
 
     return {
         "success": bool(payload.get("success")),
@@ -66,6 +83,20 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
         "user_found": bool(payload.get("user_found", False)),
         "is_in_printi_acesso": bool(payload.get("is_in_printi_acesso", False)),
     }
+
+
+def _resolve_powershell() -> str | None:
+    # Em Windows, prioriza o PowerShell nativo para facilitar uso em máquinas padrão.
+    if platform.system().lower() == "windows":
+        for candidate in ("powershell", "pwsh"):
+            if shutil.which(candidate):
+                return candidate
+        return None
+
+    for candidate in ("pwsh", "powershell"):
+        if shutil.which(candidate):
+            return candidate
+    return None
 
 
 def _error_result(usuario_ad: str, message: str) -> dict:

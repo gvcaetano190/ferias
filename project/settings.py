@@ -24,7 +24,7 @@ SECRET_KEY = env(
 DEBUG = env("DJANGO_DEBUG", "true").lower() == "true"
 ALLOWED_HOSTS = [
     host.strip()
-    for host in env("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    for host in env("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost,0.0.0.0").split(",")
     if host.strip()
 ]
 if "testserver" not in ALLOWED_HOSTS:
@@ -47,6 +47,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -94,6 +95,15 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -101,8 +111,9 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard:home"
 LOGOUT_REDIRECT_URL = "login"
 
-DOWNLOAD_DIR = REPO_ROOT / "data" / "downloads"
-PENDING_SYNC_CSV = REPO_ROOT / "data" / "pendencias_sync_ferias.csv"
+DATA_DIR = BASE_DIR / "data"
+DOWNLOAD_DIR = DATA_DIR / "downloads"
+PENDING_SYNC_CSV = DATA_DIR / "pendencias_sync_ferias.csv"
 DEFAULT_ACCESS_SYSTEMS = ["AD PRIN", "VPN", "Gmail", "Admin", "Metrics", "TOTVS"]
 GOOGLE_SHEETS_URL = env(
     "GOOGLE_SHEETS_URL",
