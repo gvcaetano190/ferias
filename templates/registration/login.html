@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Entrar{% endblock %}
+
+{% block content %}
+<section class="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+  <div class="rounded-[28px] bg-brand-900 p-8 text-white shadow-soft">
+    <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-100">Nova base</p>
+    <h2 class="mt-4 text-4xl font-black">Controle operacional com Django</h2>
+    <p class="mt-4 max-w-xl text-sm leading-7 text-brand-50/90">
+      Esta primeira etapa já usa o mesmo banco `database_v2.sqlite`, traz sincronização modular da planilha
+      e concentra as configurações no Django Admin.
+    </p>
+  </div>
+
+  <div class="rounded-[28px] border border-white/70 bg-white/80 p-8 shadow-soft backdrop-blur">
+    <h3 class="text-2xl font-bold text-slate-900">Entrar</h3>
+    <form method="post" class="mt-6 space-y-4">
+      {% csrf_token %}
+      <div>
+        <label class="text-sm font-semibold text-slate-600">Usuário</label>
+        <input type="text" name="username" class="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3">
+      </div>
+      <div>
+        <label class="text-sm font-semibold text-slate-600">Senha</label>
+        <input type="password" name="password" class="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3">
+      </div>
+      <button class="w-full rounded-2xl bg-brand-500 px-4 py-3 font-semibold text-white">Acessar</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

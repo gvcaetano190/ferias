@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Block{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <div class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">AD Block</p>
+        <h2 class="mt-2 text-3xl font-black text-slate-900">Bloqueio e desbloqueio automático</h2>
+        <p class="mt-2 text-sm text-slate-500">A rotina consulta o banco e decide quem deve ser bloqueado ou desbloqueado hoje.</p>
+      </div>
+      <form method="post" action="{% url 'block:executar' %}">
+        {% csrf_token %}
+        <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">Executar verificação</button>
+      </form>
+    </div>
+  </div>
+
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Ambiente de teste</p>
+        {% if usuario_teste_atual %}
+          <h3 class="mt-2 text-2xl font-black text-slate-900">Usuário de teste atual: {{ usuario_teste_atual }}</h3>
+          <p class="mt-2 text-sm text-slate-500">Os testes usam o usuário AD configurado no admin, sem digitação manual no frontend.</p>
+        {% else %}
+          <h3 class="mt-2 text-2xl font-black text-slate-900">Nenhum usuário de teste configurado no admin</h3>
+          <p class="mt-2 text-sm text-slate-500">Cadastre uma configuração ativa no admin para liberar os botões de teste.</p>
+        {% endif %}
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <form method="post" action="{% url 'block:testar_bloqueio' %}">
+          {% csrf_token %}
+          <button class="rounded-2xl px-5 py-3 font-semibold {% if usuario_teste_atual %}bg-slate-900 text-white{% else %}cursor-not-allowed bg-slate-200 text-slate-500{% endif %}" {% if not usuario_teste_atual %}disabled{% endif %}>
+            Testar bloqueio
+          </button>
+        </form>
+        <form method="post" action="{% url 'block:testar_desbloqueio' %}">
+          {% csrf_token %}
+          <button class="rounded-2xl px-5 py-3 font-semibold {% if usuario_teste_atual %}bg-brand-500 text-white{% else %}cursor-not-allowed bg-slate-200 text-slate-500{% endif %}" {% if not usuario_teste_atual %}disabled{% endif %}>
+            Testar desbloqueio
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Bloqueados hoje</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.bloqueados_hoje }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Desbloqueados hoje</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.desbloqueados_hoje }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Erros</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.erros_hoje }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Ignorados</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.ignorados_hoje }}</p>
+    </article>
+  </section>
+
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Histórico</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">Últimos processamentos</h3>
+      </div>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-3xl border border-slate-200">
+      <table class="min-w-full divide-y divide-slate-200 text-sm">
+        <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
+          <tr>
+            <th class="px-4 py-3">Colaborador</th>
+            <th class="px-4 py-3">Email</th>
+            <th class="px-4 py-3">Usuário AD</th>
+            <th class="px-4 py-3">Data saída</th>
+            <th class="px-4 py-3">Data retorno</th>
+            <th class="px-4 py-3">Ação</th>
+            <th class="px-4 py-3">Status AD</th>
+            <th class="px-4 py-3">Status VPN</th>
+            <th class="px-4 py-3">Resultado</th>
+            <th class="px-4 py-3">Mensagem</th>
+            <th class="px-4 py-3">Data/Hora</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 bg-white">
+          {% for row in ultimos_processamentos %}
+            <tr class="hover:bg-slate-50/80">
+              <td class="px-4 py-3 font-semibold text-slate-800">{{ row.colaborador }}</td>
+              <td class="px-4 py-3">{{ row.email|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.usuario_ad|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.data_saida|date:"d/m/Y"|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.data_retorno|date:"d/m/Y"|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.acao_executada }}</td>
+              <td class="px-4 py-3">{{ row.status_ad|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.status_vpn|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.resultado }}</td>
+              <td class="px-4 py-3">{{ row.mensagem|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.executado_em|date:"d/m/Y H:i:s" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="11" class="px-4 py-8 text-center text-slate-500">Nenhum processamento registrado ainda.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}

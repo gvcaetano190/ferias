@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from project.env import load_env_file
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = BASE_DIR.parent
+
+ENV = {}
+ENV.update(load_env_file(REPO_ROOT / ".env"))
+ENV.update(load_env_file(BASE_DIR / ".env"))
+
+
+def env(key: str, default: str) -> str:
+    return ENV.get(key, default)
+
+
+SECRET_KEY = env(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-controle-ferias-dev-key-change-me",
+)
+DEBUG = env("DJANGO_DEBUG", "true").lower() == "true"
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in env("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    if host.strip()
+]
+if "testserver" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("testserver")
+
+INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "apps.core.apps.CoreConfig",
+    "apps.block.apps.BlockConfig",
+    "apps.people.apps.PeopleConfig",
+    "apps.sync.apps.SyncConfig",
+    "apps.passwords.apps.PasswordsConfig",
+    "apps.dashboard.apps.DashboardConfig",
+]
+
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+
+ROOT_URLCONF = "project.urls"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+                "apps.core.context_processors.global_settings",
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = "project.wsgi.application"
+ASGI_APPLICATION = "project.asgi.application"
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": env(
+            "DJANGO_DATABASE_PATH",
+            str(BASE_DIR / "data" / "controle_ferias_django.sqlite"),
+        ),
+    }
+}
+
+LANGUAGE_CODE = "pt-br"
+TIME_ZONE = "America/Sao_Paulo"
+USE_I18N = True
+USE_TZ = True
+
+STATIC_URL = "/static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "dashboard:home"
+LOGOUT_REDIRECT_URL = "login"
+
+DOWNLOAD_DIR = REPO_ROOT / "data" / "downloads"
+PENDING_SYNC_CSV = REPO_ROOT / "data" / "pendencias_sync_ferias.csv"
+DEFAULT_ACCESS_SYSTEMS = ["AD PRIN", "VPN", "Gmail", "Admin", "Metrics", "TOTVS"]
+GOOGLE_SHEETS_URL = env(
+    "GOOGLE_SHEETS_URL",
+    "https://docs.google.com/spreadsheets/d/1oIgONGE3W7E1sFFNWun3bUY6Ys3JVSK1/edit",
+)

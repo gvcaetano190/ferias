@@ -1,0 +1,93 @@
+<div class="space-y-6">
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Filtro</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">Período operacional</h3>
+      </div>
+      <div class="min-w-[280px]">
+        <label class="text-sm font-semibold text-slate-600">Selecione o mês</label>
+        <select
+          name="period"
+          class="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3"
+          hx-get="{% url 'dashboard:home' %}"
+          hx-target="#period-panel"
+          hx-trigger="change"
+          hx-swap="innerHTML"
+        >
+          {% for period in periods %}
+            <option value="{{ period.key }}" {% if selected_period and selected_period.key == period.key %}selected{% endif %}>
+              {{ period.label }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Saindo hoje</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ metrics.saindo_hoje|default:0 }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Voltando amanhã</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ metrics.voltando|default:0 }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Em férias</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ metrics.em_ferias|default:0 }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Próximos 7 dias</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ metrics.proximos_7_dias|default:0 }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Total no período</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ metrics.total_periodo|default:0 }}</p>
+    </article>
+  </section>
+
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Resumo</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">
+          {% if selected_period %}Funcionários em {{ selected_period.label }}{% else %}Sem períodos disponíveis{% endif %}
+        </h3>
+      </div>
+      <p class="text-sm text-slate-500">Colaboradores ativos cadastrados: {{ active_people }}</p>
+    </div>
+
+    <div class="mt-6 overflow-hidden rounded-3xl border border-slate-200">
+      <table class="min-w-full divide-y divide-slate-200 text-sm">
+        <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
+          <tr>
+            <th class="px-4 py-3">Nome</th>
+            <th class="px-4 py-3">Motivo</th>
+            <th class="px-4 py-3">Saída</th>
+            <th class="px-4 py-3">Retorno</th>
+            <th class="px-4 py-3">Gestor</th>
+            <th class="px-4 py-3">Departamento</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 bg-white">
+          {% for row in rows %}
+            <tr class="hover:bg-slate-50/80">
+              <td class="px-4 py-3 font-semibold text-slate-800">{{ row.nome }}</td>
+              <td class="px-4 py-3">{{ row.motivo }}</td>
+              <td class="px-4 py-3">{{ row.saida|date:"d/m/Y" }}</td>
+              <td class="px-4 py-3">{{ row.retorno|date:"d/m/Y" }}</td>
+              <td class="px-4 py-3">{{ row.gestor|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.departamento|default:"-" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="px-4 py-8 text-center text-slate-500">Nenhum registro encontrado para o período selecionado.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

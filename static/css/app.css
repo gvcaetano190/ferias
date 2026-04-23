@@ -1,0 +1,16 @@
+body {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #0f4c81;
+  box-shadow: 0 0 0 4px rgba(15, 76, 129, 0.12);
+}

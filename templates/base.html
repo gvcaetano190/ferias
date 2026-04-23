@@ -1,0 +1,84 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ operational_settings.company_name|default:"Controle de Férias" }}{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: "#eef6ff",
+              100: "#daeafe",
+              500: "#0f4c81",
+              700: "#0f3659",
+              900: "#0b2238"
+            },
+            sand: "#f6f1e8"
+          },
+          boxShadow: {
+            soft: "0 24px 60px rgba(15, 54, 89, 0.12)"
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,76,129,0.18),_transparent_38%),linear-gradient(180deg,_#f8fafc_0%,_#eef4f8_100%)] text-slate-800">
+  <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 lg:px-6">
+    <header class="mb-6 rounded-[28px] border border-white/70 bg-white/80 px-6 py-5 shadow-soft backdrop-blur">
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Django + HTMX</p>
+          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-900">{{ operational_settings.company_name|default:"Sistema de Controle de Férias" }}</h1>
+          <p class="mt-2 max-w-2xl text-sm text-slate-500">Migração inicial do Streamlit para uma base modular em Django, reaproveitando o banco atual.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 text-sm">
+          {% if request.user.is_authenticated %}
+            <a
+              href="{% url 'dashboard:home' %}"
+              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'dashboard' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Dashboard</a>
+            <a
+              href="{% url 'passwords:index' %}"
+              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'passwords' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Senhas</a>
+            <a
+              href="{% url 'block:index' %}"
+              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'block' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Block</a>
+            <a
+              href="/admin/"
+              class="rounded-full px-4 py-2 font-semibold {% if '/admin/' in request.path %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Admin</a>
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button class="rounded-full border border-slate-200 px-4 py-2 font-semibold text-slate-700">Sair</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    {% if messages %}
+      <section class="mb-5 space-y-3">
+        {% for message in messages %}
+          <div class="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 text-sm shadow-sm backdrop-blur">
+            {{ message }}
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    <main class="flex-1">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}Senhas Seguras{% endblock %}
+
+{% block content %}
+<section class="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+  <div class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">OneTimeSecret</p>
+    <h2 class="mt-2 text-3xl font-black text-slate-900">Gerar link seguro</h2>
+    <form method="post" class="mt-6 space-y-4">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {{ form.non_field_errors|join:", " }}
+        </div>
+      {% endif %}
+
+      <div>
+        <label class="text-sm font-semibold text-slate-600">{{ form.senha.label }}</label>
+        {{ form.senha }}
+        {% if form.senha.errors %}
+          <p class="mt-1 text-sm text-rose-600">{{ form.senha.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+
+      <div class="relative">
+        <label class="text-sm font-semibold text-slate-600">{{ form.nome_pessoa.label }}</label>
+        {{ form.nome_pessoa }}
+        {{ form.colaborador_id }}
+        {% if form.nome_pessoa.errors %}
+          <p class="mt-1 text-sm text-rose-600">{{ form.nome_pessoa.errors|join:", " }}</p>
+        {% endif %}
+        <div
+          id="collaborator-results"
+          class="mt-2"
+          hx-get="{% url 'passwords:lookup' %}"
+          hx-trigger="load"
+          hx-target="this"
+          hx-swap="innerHTML"
+        ></div>
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-slate-600">Gestor</label>
+        <div id="selected-gestor" class="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Será preenchido automaticamente ao escolher a pessoa
+        </div>
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-slate-600">{{ form.descricao.label }}</label>
+        {{ form.descricao }}
+        {% if form.descricao.errors %}
+          <p class="mt-1 text-sm text-rose-600">{{ form.descricao.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+
+      <div>
+        <label class="text-sm font-semibold text-slate-600">{{ form.ttl_seconds.label }}</label>
+        {{ form.ttl_seconds }}
+        {% if form.ttl_seconds.errors %}
+          <p class="mt-1 text-sm text-rose-600">{{ form.ttl_seconds.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+      <button class="w-full rounded-2xl bg-brand-500 px-4 py-3 font-semibold text-white">Criar link</button>
+    </form>
+  </div>
+
+  <div class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Histórico</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">Últimos links gerados</h3>
+      </div>
+      <a href="/admin/passwords/passwordlink/" class="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Abrir no admin</a>
+    </div>
+
+    <div class="mt-6 space-y-4">
+      {% for link in recent_links %}
+        <article class="rounded-3xl border border-slate-200 bg-white p-4">
+          <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h4 class="font-bold text-slate-900">{{ link.nome_pessoa|default:"Sem nome" }}</h4>
+              <p class="text-sm text-slate-500">{{ link.gestor_pessoa|default:"Sem gestor" }}</p>
+            </div>
+            <span class="inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold {% if link.visualizado %}bg-emerald-100 text-emerald-700{% else %}bg-amber-100 text-amber-700{% endif %}">
+              {% if link.visualizado %}Visualizado{% else %}Pendente{% endif %}
+            </span>
+          </div>
+          <div class="mt-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            <p class="font-semibold text-slate-800">Senha</p>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <code id="password-value-{{ link.pk }}" class="rounded-xl bg-white px-3 py-2 text-slate-700">{{ link.senha_usada|default:"-" }}</code>
+              <button type="button" class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700" onclick="copyFromElement('password-value-{{ link.pk }}', this)">Copiar senha</button>
+            </div>
+          </div>
+          <div class="mt-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            <p class="font-semibold text-slate-800">Link</p>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <code id="link-value-{{ link.pk }}" class="break-all rounded-xl bg-white px-3 py-2 text-slate-700">{{ link.link_url }}</code>
+              <button type="button" class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700" onclick="copyFromElement('link-value-{{ link.pk }}', this)">Copiar link</button>
+            </div>
+          </div>
+          <div class="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+            <span>Criado em {{ link.criado_em|date:"d/m/Y H:i" }}</span>
+            <span>TTL {{ link.ttl_seconds }}s</span>
+            {% if link.metadata_key %}
+              <form method="post" action="{% url 'passwords:status' link.pk %}">
+                {% csrf_token %}
+                <button class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700">Consultar status</button>
+              </form>
+            {% endif %}
+          </div>
+        </article>
+      {% empty %}
+        <div class="rounded-3xl border border-dashed border-slate-200 p-8 text-center text-slate-500">
+          Nenhum link de senha encontrado no banco atual.
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<script>
+  function bindCollaboratorLookup() {
+    const input = document.getElementById("id_nome_pessoa");
+    const hiddenId = document.getElementById("id_colaborador_id");
+    const resultBox = document.getElementById("collaborator-results");
+    const gestorBox = document.getElementById("selected-gestor");
+
+    if (!input || !hiddenId || !resultBox || !gestorBox) {
+      return;
+    }
+
+    input.addEventListener("input", () => {
+      hiddenId.value = "";
+      gestorBox.textContent = "Será preenchido automaticamente ao escolher a pessoa";
+      if (input.value.trim().length < 2) {
+        resultBox.innerHTML = "";
+        return;
+      }
+      htmx.ajax("GET", "{% url 'passwords:lookup' %}?q=" + encodeURIComponent(input.value), "#collaborator-results");
+    });
+  }
+
+  function selectCollaborator(id, nome, gestor) {
+    document.getElementById("id_colaborador_id").value = id;
+    document.getElementById("id_nome_pessoa").value = nome;
+    document.getElementById("selected-gestor").textContent = gestor || "Sem gestor cadastrado";
+    document.getElementById("collaborator-results").innerHTML = "";
+  }
+
+  async function copyFromElement(elementId, button) {
+    const target = document.getElementById(elementId);
+    if (!target) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(target.textContent.trim());
+      const previous = button.textContent;
+      button.textContent = "Copiado";
+      setTimeout(() => {
+        button.textContent = previous;
+      }, 1200);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", bindCollaboratorLookup);
+  document.addEventListener("htmx:afterSwap", bindCollaboratorLookup);
+</script>
+{% endblock %}
