@@ -101,13 +101,15 @@ class BlockService:
 
         ad_result = desbloquear_usuario_ad(collaborator.login_ad or "")
         ad_status = ad_result.get("ad_status", "ERRO")
+        vpn_status = ad_result.get("vpn_status", "NP")
         resultado = "SUCESSO" if ad_result.get("success") else "ERRO"
 
         if resultado == "SUCESSO":
+            # Se o usuário ainda pertence ao grupo Printi_Acesso, a VPN volta com o AD.
             self.repository.atualizar_status_block(
                 colaborador_id=collaborator.id,
                 ad_status=ad_status,
-                vpn_status=None,
+                vpn_status=vpn_status,
             )
 
         self.repository.salvar_resultado_execucao(
@@ -116,7 +118,7 @@ class BlockService:
             email=collaborator.email or "",
             acao="DESBLOQUEIO",
             ad_status=ad_status,
-            vpn_status=ad_result.get("vpn_status", "NP"),
+            vpn_status=vpn_status,
             resultado=resultado,
             mensagem=ad_result.get("message", ""),
         )
