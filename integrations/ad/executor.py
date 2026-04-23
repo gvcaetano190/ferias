@@ -44,6 +44,8 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
             command,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
             check=False,
         )

@@ -3,6 +3,8 @@ param(
     [string]$UsuarioAd
 )
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Stop"
 $grupoVpn = "Printi_Acesso"
 

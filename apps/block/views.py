@@ -5,6 +5,15 @@ from django.shortcuts import redirect, render
 from apps.block.services import BlockService
 
 
+def _formatar_mensagem_teste(prefixo: str, resultado: dict) -> str:
+    tinha_vpn = "Sim" if resultado.get("is_in_printi_acesso") else "Não"
+    return (
+        f"{prefixo} para {resultado.get('usuario_ad')}. "
+        f"Tinha VPN: {tinha_vpn}. "
+        f"{resultado.get('message')}"
+    )
+
+
 @login_required
 def index(request):
     service = BlockService()
@@ -47,12 +56,12 @@ def testar_bloqueio(request):
     if resultado.get("success"):
         messages.success(
             request,
-            f"Teste de bloqueio executado com sucesso para {resultado.get('usuario_ad')}: {resultado.get('message')}",
+            _formatar_mensagem_teste("Teste de bloqueio executado com sucesso", resultado),
         )
     else:
         messages.error(
             request,
-            f"Falha no teste de bloqueio para {resultado.get('usuario_ad')}: {resultado.get('message')}",
+            _formatar_mensagem_teste("Falha no teste de bloqueio", resultado),
         )
     return redirect("block:index")
 
@@ -72,11 +81,11 @@ def testar_desbloqueio(request):
     if resultado.get("success"):
         messages.success(
             request,
-            f"Teste de desbloqueio executado com sucesso para {resultado.get('usuario_ad')}: {resultado.get('message')}",
+            _formatar_mensagem_teste("Teste de desbloqueio executado com sucesso", resultado),
         )
     else:
         messages.error(
             request,
-            f"Falha no teste de desbloqueio para {resultado.get('usuario_ad')}: {resultado.get('message')}",
+            _formatar_mensagem_teste("Falha no teste de desbloqueio", resultado),
         )
     return redirect("block:index")
