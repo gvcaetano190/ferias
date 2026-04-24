@@ -35,13 +35,21 @@ class BlockService:
         return result.as_dict()
 
     def processar_bloqueios(self, result: BlockServiceResult) -> BlockServiceResult:
+        seen_collaborators: set[int] = set()
         for ferias in self.repository.buscar_para_bloqueio_hoje():
+            if ferias.colaborador_id in seen_collaborators:
+                continue
+            seen_collaborators.add(ferias.colaborador_id)
             outcome = self.processar_usuario_bloqueio(ferias)
             self._acumular_resultado(result, outcome, acao="BLOQUEIO")
         return result
 
     def processar_desbloqueios(self, result: BlockServiceResult) -> BlockServiceResult:
+        seen_collaborators: set[int] = set()
         for ferias in self.repository.buscar_para_desbloqueio_hoje():
+            if ferias.colaborador_id in seen_collaborators:
+                continue
+            seen_collaborators.add(ferias.colaborador_id)
             outcome = self.processar_usuario_desbloqueio(ferias)
             self._acumular_resultado(result, outcome, acao="DESBLOQUEIO")
         return result

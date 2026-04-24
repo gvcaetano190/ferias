@@ -30,11 +30,11 @@ class BlockRepository:
         window_start = self._janela_operacional_inicio()
         return (
             Ferias.objects.select_related("colaborador")
-            .filter(data_saida=today)
+            .filter(data_saida__lte=today, data_retorno__gt=today)
             .filter(Q(data_saida__gte=window_start) | Q(data_retorno__gte=window_start))
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
-            .order_by("colaborador__nome")
+            .order_by("colaborador__nome", "-data_saida", "-data_retorno")
         )
 
     def buscar_para_desbloqueio_hoje(self):
@@ -42,11 +42,11 @@ class BlockRepository:
         window_start = self._janela_operacional_inicio()
         return (
             Ferias.objects.select_related("colaborador")
-            .filter(data_retorno=today)
+            .filter(data_retorno__lte=today)
             .filter(data_retorno__gte=window_start)
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
-            .order_by("colaborador__nome")
+            .order_by("colaborador__nome", "-data_retorno", "-data_saida")
         )
 
     def obter_status_ad(self, colaborador_id: int) -> str:
