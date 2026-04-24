@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -13,11 +15,23 @@ class BlockRepository:
     BLOCKABLE_AD_STATUSES = {"", "LIBERADO", "NB", "NP"}
     UNLOCKABLE_AD_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
 
+    def _janela_operacional_inicio(self) -> date:
+        today = timezone.localdate()
+        month = today.month - 1
+        year = today.year
+        if month == 0:
+            month = 12
+            year -= 1
+        # Mantemos só o mês atual e o mês anterior para evitar reprocessar férias antigas.
+        return date(year, month, 1)
+
     def buscar_para_bloqueio_hoje(self):
         today = timezone.localdate()
+        window_start = self._janela_operacional_inicio()
         return (
             Ferias.objects.select_related("colaborador")
             .filter(data_saida__lte=today, data_retorno__gte=today)
+            .filter(Q(data_saida__gte=window_start) | Q(data_retorno__gte=window_start))
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
             .order_by("colaborador__nome")
@@ -25,9 +39,11 @@ class BlockRepository:
 
     def buscar_para_desbloqueio_hoje(self):
         today = timezone.localdate()
+        window_start = self._janela_operacional_inicio()
         return (
             Ferias.objects.select_related("colaborador")
             .filter(data_retorno__lt=today)
+            .filter(data_retorno__gte=window_start)
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
             .order_by("colaborador__nome")
@@ -109,7 +125,19 @@ class BlockRepository:
         )
 
     def listar_ultimos_processamentos(self, limit: int = 20):
-        processings = BlockProcessing.objects.order_by("-executado_em")[:limit]
+        return self.listar_processamentos(
+            limit=limit,
+            date_from=self._janela_operacional_inicio(),
+            date_to=timezone.localdate(),
+        )
+
+    def listar_processamentos(self, *, limit: int = 50, date_from=None, date_to=None):
+        processings = BlockProcessing.objects.all()
+        if date_from:
+            processings = processings.filter(executado_em__date__gte=date_from)
+        if date_to:
+            processings = processings.filter(executado_em__date__lte=date_to)
+        processings = processings.order_by("-executado_em")[:limit]
         collaborator_ids = [processing.colaborador_id for processing in processings]
         collaborator_map = {
             item.id: item.nome
@@ -139,26 +167,30 @@ class BlockRepository:
             )
         return rows
 
-    def resumo_dashboard_block(self) -> dict[str, int]:
-        today = timezone.localdate()
+    def resumo_dashboard_block(self, *, date_from=None, date_to=None) -> dict[str, int]:
+        processings = BlockProcessing.objects.all()
+        if date_from:
+            processings = processings.filter(executado_em__date__gte=date_from)
+        if date_to:
+            processings = processings.filter(executado_em__date__lte=date_to)
         grouped = (
-            BlockProcessing.objects.filter(executado_em__date=today)
+            processings
             .values("resultado", "acao")
             .annotate(total=Count("id"))
         )
         summary = {
-            "bloqueados_hoje": 0,
-            "desbloqueados_hoje": 0,
-            "erros_hoje": 0,
-            "ignorados_hoje": 0,
+            "bloqueados_periodo": 0,
+            "desbloqueados_periodo": 0,
+            "erros_periodo": 0,
+            "ignorados_periodo": 0,
         }
         for item in grouped:
             if item["resultado"] == "SUCESSO" and item["acao"] == "BLOQUEIO":
-                summary["bloqueados_hoje"] += item["total"]
+                summary["bloqueados_periodo"] += item["total"]
             elif item["resultado"] == "SUCESSO" and item["acao"] == "DESBLOQUEIO":
-                summary["desbloqueados_hoje"] += item["total"]
+                summary["desbloqueados_periodo"] += item["total"]
             elif item["resultado"] == "ERRO":
-                summary["erros_hoje"] += item["total"]
+                summary["erros_periodo"] += item["total"]
             elif item["resultado"] == "IGNORADO":
-                summary["ignorados_hoje"] += item["total"]
+                summary["ignorados_periodo"] += item["total"]
         return summary

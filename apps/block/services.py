@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
+
+from django.utils import timezone
 
 from apps.block.repositories import BlockRepository
 from integrations.ad.executor import bloquear_usuario_ad, desbloquear_usuario_ad
@@ -153,12 +156,49 @@ class BlockService:
         return {"resultado": resultado}
 
     def dashboard_data(self) -> dict:
+        today = timezone.localdate()
+        default_start = today - timedelta(days=30)
         config = self.repository.obter_configuracao_ativa_block()
         return {
-            "resumo": self.repository.resumo_dashboard_block(),
-            "ultimos_processamentos": self.repository.listar_ultimos_processamentos(),
+            "resumo": self.repository.resumo_dashboard_block(
+                date_from=default_start,
+                date_to=today,
+            ),
+            "ultimos_processamentos": self.repository.listar_processamentos(
+                limit=50,
+                date_from=default_start,
+                date_to=today,
+            ),
             "configuracao_ativa": config,
             "usuario_teste_atual": self.repository.obter_usuario_teste_block(),
+            "filtros": {
+                "date_from": default_start,
+                "date_to": today,
+            },
+        }
+
+    def dashboard_data_filtrada(self, *, date_from=None, date_to=None) -> dict:
+        today = timezone.localdate()
+        default_start = today - timedelta(days=30)
+        date_from = date_from or default_start
+        date_to = date_to or today
+        config = self.repository.obter_configuracao_ativa_block()
+        return {
+            "resumo": self.repository.resumo_dashboard_block(
+                date_from=date_from,
+                date_to=date_to,
+            ),
+            "ultimos_processamentos": self.repository.listar_processamentos(
+                limit=50,
+                date_from=date_from,
+                date_to=date_to,
+            ),
+            "configuracao_ativa": config,
+            "usuario_teste_atual": self.repository.obter_usuario_teste_block(),
+            "filtros": {
+                "date_from": date_from,
+                "date_to": date_to,
+            },
         }
 
     def testar_bloqueio(self) -> dict:

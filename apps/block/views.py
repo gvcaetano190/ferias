@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
+from django.utils.dateparse import parse_date
 
 from apps.block.services import BlockService
 
@@ -17,7 +18,9 @@ def _formatar_mensagem_teste(prefixo: str, resultado: dict) -> str:
 @login_required
 def index(request):
     service = BlockService()
-    context = service.dashboard_data()
+    date_from = parse_date(request.GET.get("date_from", ""))
+    date_to = parse_date(request.GET.get("date_to", ""))
+    context = service.dashboard_data_filtrada(date_from=date_from, date_to=date_to)
     return render(request, "block/index.html", context)
 
 
