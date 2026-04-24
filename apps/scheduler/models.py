@@ -81,3 +81,19 @@ class JobExecution(models.Model):
     def __str__(self) -> str:
         return f"{self.job.name} - {self.status} - {self.started_at:%d/%m/%Y %H:%M}"
 
+
+class SchedulerRuntime(models.Model):
+    singleton_key = models.CharField(max_length=32, unique=True, default="default")
+    last_heartbeat_at = models.DateTimeField(blank=True, null=True)
+    last_cycle_at = models.DateTimeField(blank=True, null=True)
+    last_status = models.CharField(max_length=20, default="STOPPED")
+    last_message = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "scheduler_runtime"
+        verbose_name = "Runtime do scheduler"
+        verbose_name_plural = "Runtime do scheduler"
+
+    def __str__(self) -> str:
+        return f"Scheduler runtime - {self.last_status}"

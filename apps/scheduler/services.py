@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from apps.block.services import BlockService
 from apps.shared.services.sync import SpreadsheetSyncService
-from apps.scheduler.models import JobExecution, ScheduledJob
+from apps.scheduler.models import JobExecution, ScheduledJob, SchedulerRuntime
 from apps.scheduler.repositories import SchedulerRepository
 
 
@@ -60,6 +60,7 @@ class SchedulerService:
         self.ensure_default_jobs()
         jobs = list(self.repository.list_jobs())
         executions = list(self.repository.recent_executions())
+        runtime = self._runtime_status()
         summary = {
             "ativos": sum(1 for job in jobs if job.enabled),
             "com_erro": sum(1 for job in jobs if job.last_status == ScheduledJob.STATUS_ERROR),
@@ -71,6 +72,7 @@ class SchedulerService:
             "jobs": jobs,
             "executions": executions,
             "now": timezone.localtime(),
+            "runtime": runtime,
         }
 
     def calculate_next_run_at(self, job: ScheduledJob, *, now=None, just_ran: bool = True):
@@ -169,7 +171,33 @@ class SchedulerService:
 
     def loop_forever(self, poll_seconds: int = 60) -> None:
         self.ensure_default_jobs()
+        self._touch_runtime(status="RUNNING", message="Scheduler iniciado.", cycle=True)
         while True:
+            self._touch_runtime(status="RUNNING", message="Aguardando próxima verificação.")
             self.run_due_jobs()
+            self._touch_runtime(status="RUNNING", message="Ciclo concluído.", cycle=True)
             time.sleep(poll_seconds)
 
+    def _runtime_status(self) -> dict:
+        runtime, _ = SchedulerRuntime.objects.get_or_create(singleton_key="default")
+        now = timezone.now()
+        threshold_seconds = int(timezone.timedelta(minutes=3).total_seconds())
+        is_alive = False
+        if runtime.last_heartbeat_at:
+            is_alive = (now - runtime.last_heartbeat_at).total_seconds() <= threshold_seconds
+        return {
+            "is_running": is_alive,
+            "label": "Rodando" if is_alive else "Parado",
+            "last_heartbeat_at": runtime.last_heartbeat_at,
+            "last_cycle_at": runtime.last_cycle_at,
+            "last_message": runtime.last_message,
+        }
+
+    def _touch_runtime(self, *, status: str, message: str, cycle: bool = False) -> None:
+        runtime, _ = SchedulerRuntime.objects.get_or_create(singleton_key="default")
+        runtime.last_status = status
+        runtime.last_message = message
+        runtime.last_heartbeat_at = timezone.now()
+        if cycle:
+            runtime.last_cycle_at = runtime.last_heartbeat_at
+        runtime.save(update_fields=["last_status", "last_message", "last_heartbeat_at", "last_cycle_at", "updated_at"])
