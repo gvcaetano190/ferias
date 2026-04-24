@@ -245,6 +245,9 @@ class AccessesService:
         if has_liberado and has_bloqueado:
             return "PENDENTE"
 
+        if retorno_vigente and has_bloqueado:
+            return "PENDENTE"
+
         if has_bloqueado:
             return "BLOQUEADO"
 
