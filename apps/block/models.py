@@ -23,6 +23,8 @@ class BlockProcessing(models.Model):
     usuario_ad = models.CharField(max_length=150, blank=True)
     email = models.EmailField(blank=True)
     acao = models.CharField(max_length=20)
+    data_saida = models.DateField(blank=True, null=True)
+    data_retorno = models.DateField(blank=True, null=True)
     ad_status = models.CharField(max_length=50, blank=True)
     vpn_status = models.CharField(max_length=50, blank=True)
     resultado = models.CharField(max_length=20)

@@ -30,7 +30,7 @@ class BlockRepository:
         window_start = self._janela_operacional_inicio()
         return (
             Ferias.objects.select_related("colaborador")
-            .filter(data_saida__lte=today, data_retorno__gte=today)
+            .filter(data_saida=today)
             .filter(Q(data_saida__gte=window_start) | Q(data_retorno__gte=window_start))
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
@@ -42,7 +42,7 @@ class BlockRepository:
         window_start = self._janela_operacional_inicio()
         return (
             Ferias.objects.select_related("colaborador")
-            .filter(data_retorno__lt=today)
+            .filter(data_retorno=today)
             .filter(data_retorno__gte=window_start)
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
@@ -108,6 +108,8 @@ class BlockRepository:
         usuario_ad: str,
         email: str,
         acao: str,
+        data_saida=None,
+        data_retorno=None,
         ad_status: str,
         vpn_status: str,
         resultado: str,
@@ -118,6 +120,8 @@ class BlockRepository:
             usuario_ad=usuario_ad,
             email=email,
             acao=acao,
+            data_saida=data_saida,
+            data_retorno=data_retorno,
             ad_status=ad_status,
             vpn_status=vpn_status,
             resultado=resultado,
@@ -133,14 +137,16 @@ class BlockRepository:
         if return_year and return_month:
             ferias_qs = ferias_qs.filter(data_retorno__year=return_year, data_retorno__month=return_month)
 
+        collaborator_ids = list(ferias_qs.values_list("colaborador_id", flat=True).distinct())
         ferias_list = list(
-            ferias_qs.select_related("colaborador").order_by("colaborador_id", "-data_retorno", "-data_saida")
+            Ferias.objects.filter(colaborador_id__in=collaborator_ids)
+            .select_related("colaborador")
+            .order_by("colaborador_id", "-data_retorno", "-data_saida")
         )
         ferias_map = {}
         for item in ferias_list:
             ferias_map.setdefault(item.colaborador_id, []).append(item)
 
-        collaborator_ids = list(ferias_map.keys())
         processings = list(
             BlockProcessing.objects.filter(colaborador_id__in=collaborator_ids)
             .order_by("-executado_em")[:limit]
@@ -158,13 +164,18 @@ class BlockRepository:
                 return_year=return_year,
                 return_month=return_month,
             )
+            data_saida = processing.data_saida or getattr(ferias, "data_saida", None)
+            data_retorno = processing.data_retorno or getattr(ferias, "data_retorno", None)
+            if return_year and return_month and data_retorno:
+                if data_retorno.year != return_year or data_retorno.month != return_month:
+                    continue
             rows.append(
                 {
                     "colaborador": collaborator_map.get(processing.colaborador_id, "Desconhecido"),
                     "email": processing.email,
                     "usuario_ad": processing.usuario_ad,
-                    "data_saida": getattr(ferias, "data_saida", None),
-                    "data_retorno": getattr(ferias, "data_retorno", None),
+                    "data_saida": data_saida,
+                    "data_retorno": data_retorno,
                     "acao_executada": processing.acao,
                     "status_ad": processing.ad_status,
                     "status_vpn": processing.vpn_status,
@@ -196,13 +207,18 @@ class BlockRepository:
         return unicos
 
     def _resolver_ferias_para_processamento(self, processing, ferias_items, *, return_year=None, return_month=None):
+        if processing.data_saida or processing.data_retorno:
+            return type(
+                "FeriasRef",
+                (),
+                {
+                    "data_saida": processing.data_saida,
+                    "data_retorno": processing.data_retorno,
+                },
+            )()
+
         if not ferias_items:
             return None
-
-        if return_year and return_month:
-            for item in ferias_items:
-                if item.data_retorno.year == return_year and item.data_retorno.month == return_month:
-                    return item
 
         execution_date = timezone.localtime(processing.executado_em).date()
         elegiveis = [item for item in ferias_items if item.data_retorno <= execution_date]
