@@ -31,7 +31,7 @@
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
 <body class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,76,129,0.18),_transparent_38%),linear-gradient(180deg,_#f8fafc_0%,_#eef4f8_100%)] text-slate-800">
-  <div class="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 lg:px-6">
+  <div class="mx-auto flex min-h-screen {% if request.resolver_match.namespace == 'accesses' %}max-w-[99vw] 2xl:max-w-[1920px]{% else %}max-w-7xl{% endif %} flex-col px-3 py-6 lg:px-4">
     <header class="mb-6 rounded-[28px] border border-white/70 bg-white/80 px-6 py-5 shadow-soft backdrop-blur">
       <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
@@ -46,6 +46,10 @@
               class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'dashboard' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
             >Dashboard</a>
             <a
+              href="{% url 'accesses:index' %}"
+              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'accesses' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Acessos</a>
+            <a
               href="{% url 'passwords:index' %}"
               class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'passwords' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
             >Senhas</a>
@@ -53,6 +57,10 @@
               href="{% url 'block:index' %}"
               class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'block' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
             >Block</a>
+            <a
+              href="{% url 'scheduler:index' %}"
+              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'scheduler' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Scheduler</a>
             <a
               href="/admin/"
               class="rounded-full px-4 py-2 font-semibold {% if '/admin/' in request.path %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"

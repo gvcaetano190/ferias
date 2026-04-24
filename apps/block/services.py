@@ -46,6 +46,20 @@ class BlockService:
 
     def processar_usuario_bloqueio(self, ferias) -> dict:
         collaborator = ferias.colaborador
+        ad_status_atual = self.repository.obter_status_ad(collaborator.id)
+        if not self.repository.pode_bloquear(collaborator.id):
+            self.repository.salvar_resultado_execucao(
+                colaborador_id=collaborator.id,
+                usuario_ad=collaborator.login_ad or "",
+                email=collaborator.email or "",
+                acao="BLOQUEIO",
+                ad_status=ad_status_atual or "IGNORADO",
+                vpn_status="IGNORADO",
+                resultado="IGNORADO",
+                mensagem="Bloqueio ignorado: status atual não exige bloqueio.",
+            )
+            return {"resultado": "IGNORADO"}
+
         if self.repository.ja_processado_hoje(collaborator.id, "BLOQUEIO"):
             self.repository.salvar_resultado_execucao(
                 colaborador_id=collaborator.id,
@@ -86,6 +100,20 @@ class BlockService:
 
     def processar_usuario_desbloqueio(self, ferias) -> dict:
         collaborator = ferias.colaborador
+        ad_status_atual = self.repository.obter_status_ad(collaborator.id)
+        if not self.repository.pode_desbloquear(collaborator.id):
+            self.repository.salvar_resultado_execucao(
+                colaborador_id=collaborator.id,
+                usuario_ad=collaborator.login_ad or "",
+                email=collaborator.email or "",
+                acao="DESBLOQUEIO",
+                ad_status=ad_status_atual or "IGNORADO",
+                vpn_status="IGNORADO",
+                resultado="IGNORADO",
+                mensagem="Desbloqueio ignorado: status atual não exige desbloqueio.",
+            )
+            return {"resultado": "IGNORADO"}
+
         if self.repository.ja_processado_hoje(collaborator.id, "DESBLOQUEIO"):
             self.repository.salvar_resultado_execucao(
                 colaborador_id=collaborator.id,

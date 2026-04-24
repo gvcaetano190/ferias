@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Acessos{% endblock %}
+
+{% block content %}
+<section class="space-y-6">
+  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Pessoas no mês</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.colaboradores_monitorados }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Sistemas monitorados</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.sistemas_monitorados }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Bloqueados</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.bloqueados }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Pendências</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.pendencias }}</p>
+    </article>
+  </section>
+
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 pb-10 shadow-soft backdrop-blur">
+    <div class="mb-5">
+      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Filtros</p>
+      <h3 class="mt-2 text-2xl font-black text-slate-900">Referência operacional</h3>
+    </div>
+    <form method="get" class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <label class="block">
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Mês de referência</span>
+        <select name="referencia" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
+          {% for referencia in referencias %}
+            <option value="{{ referencia.value }}" {% if filters.referencia == referencia.value %}selected{% endif %}>{{ referencia.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block">
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Busca</span>
+        <input type="text" name="q" value="{{ filters.query }}" placeholder="Nome, email, login..." class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
+      </label>
+      <label class="block">
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Gestor</span>
+        <select name="gestor" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
+          <option value="">Todos</option>
+          {% for gestor in gestores %}
+            <option value="{{ gestor }}" {% if filters.gestor == gestor %}selected{% endif %}>{{ gestor }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block">
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Situação</span>
+        <select name="situacao" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
+          <option value="">Todas</option>
+          {% for value, label in situacoes %}
+            <option value="{{ value }}" {% if filters.situacao == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block">
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Status</span>
+        <select name="status" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
+          <option value="">Todos</option>
+          {% for status in statuses %}
+            <option value="{{ status }}" {% if filters.status == status %}selected{% endif %}>{{ status }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="flex items-end gap-3">
+        <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">Aplicar</button>
+        <a href="{% url 'accesses:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Resetar</a>
+        <a href="{% url 'accesses:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Limpar filtros</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div>
+      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Tabela</p>
+      <h3 class="mt-2 text-2xl font-black text-slate-900">Acessos por colaborador</h3>
+    </div>
+    <div class="mt-6 overflow-x-auto rounded-3xl border border-slate-200">
+      <table class="w-full divide-y divide-slate-200 text-[13px]">
+        <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
+          <tr>
+            <th class="px-3 py-3">Nome</th>
+            <th class="px-3 py-3">Email</th>
+            <th class="px-3 py-3">Gestor</th>
+            <th class="px-3 py-3">Saída</th>
+            <th class="px-3 py-3">Retorno</th>
+            {% for system in system_headers %}
+              <th class="px-3 py-3 whitespace-nowrap">{{ system.label }}</th>
+            {% endfor %}
+            <th class="px-3 py-3">Situação</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 bg-white">
+          {% for row in rows %}
+            <tr class="hover:bg-slate-50/80">
+              <td class="px-3 py-3 font-semibold text-slate-800">{{ row.colaborador }}</td>
+              <td class="px-3 py-3">{{ row.email|default:"-" }}</td>
+              <td class="px-3 py-3">{{ row.gestor|default:"-" }}</td>
+              <td class="px-3 py-3 whitespace-nowrap">{{ row.data_saida|date:"d/m/Y"|default:"-" }}</td>
+              <td class="px-3 py-3 whitespace-nowrap">{{ row.data_retorno|date:"d/m/Y"|default:"-" }}</td>
+              {% for value in row.system_cells %}
+                <td class="px-3 py-3 whitespace-nowrap">{{ value|default:"-" }}</td>
+              {% endfor %}
+              <td class="px-3 py-3">
+                <span class="rounded-full px-3 py-1 text-xs font-semibold
+                  {% if row.situacao == 'BLOQUEADO' %}bg-amber-100 text-amber-800
+                  {% elif row.situacao == 'LIBERADO' %}bg-emerald-100 text-emerald-700
+                  {% elif row.situacao == 'PENDENTE' %}bg-rose-100 text-rose-700
+                  {% else %}bg-slate-100 text-slate-700{% endif %}">
+                  {{ row.situacao_label }}
+                </span>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="20" class="px-3 py-8 text-center text-slate-500">Nenhum colaborador encontrado para a referência atual.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}

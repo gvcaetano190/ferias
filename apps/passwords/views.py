@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import FormView
 
@@ -21,17 +21,21 @@ class PasswordListCreateView(LoginRequiredMixin, FormView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["recent_links"] = self.password_service.recent_links(limit=15)
+        history_query = (self.request.GET.get("history_q") or "").strip()
+        context["recent_links"] = self.password_service.recent_links(limit=30, query=history_query)
+        context["history_query"] = history_query
         return context
 
     def form_valid(self, form):
         try:
             self.password_service.create_link(
-                collaborator_id=int(form.cleaned_data["colaborador_id"]),
-                senha=form.cleaned_data["senha"],
+                secret_payload=form.cleaned_data["secret_payload"],
                 descricao=form.cleaned_data["descricao"],
                 ttl_seconds=int(form.cleaned_data["ttl_seconds"]),
                 username=self.request.user.get_username(),
+                nome_pessoa=form.cleaned_data.get("nome_pessoa") or "",
+                gestor_pessoa=form.cleaned_data.get("gestor_pessoa") or "",
+                finalidade=form.cleaned_data.get("finalidade") or "Acesso Temporário",
             )
         except ValueError as exc:
             messages.error(self.request, str(exc))
@@ -46,13 +50,18 @@ def check_password_status(request, pk: int):
     try:
         password_link, result = password_service.check_status(pk)
     except ValueError as exc:
+        if request.headers.get("HX-Request"):
+            return HttpResponse(str(exc), status=400)
         messages.error(request, str(exc))
         return redirect("passwords:index")
 
+    if request.headers.get("HX-Request"):
+        return render(request, "passwords/partials/history_card.html", {"link": password_link})
+
     if result["viewed"]:
         messages.success(request, "O link já foi visualizado.")
-    else:
-        messages.info(request, f"Status atual: {result['raw_state']}.")
+    elif result["raw_state"] == "expired":
+        messages.warning(request, "O link expirou.")
 
     return redirect("passwords:index")
 

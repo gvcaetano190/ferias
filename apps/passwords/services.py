@@ -10,6 +10,8 @@ class OneTimeSecretClient:
     BASE_URL = "https://eu.onetimesecret.com/api/v1"
     STATUS_BASE_URL = "https://eu.onetimesecret.com/api/v2"
     SECRET_URL_PREFIX = "https://eu.onetimesecret.com/secret/"
+    GLOBAL_STATUS_BASE_URL = "https://onetimesecret.com/api/v2"
+    EU_STATUS_BASE_URL = "https://eu.onetimesecret.com/api/v2"
 
     def __init__(self, email: str, api_key: str):
         self.auth = HTTPBasicAuth(email, api_key)
@@ -40,10 +42,11 @@ class OneTimeSecretClient:
             "ttl_seconds": ttl_seconds,
         }
 
-    def check_status(self, metadata_key: str) -> dict[str, Any]:
+    def check_status(self, metadata_key: str, link_url: str = "") -> dict[str, Any]:
+        status_base_url = self.EU_STATUS_BASE_URL if "eu.onetimesecret.com" in (link_url or "") else self.GLOBAL_STATUS_BASE_URL
         try:
             response = requests.get(
-                f"{self.STATUS_BASE_URL}/private/{metadata_key}",
+                f"{status_base_url}/private/{metadata_key}",
                 auth=self.auth,
                 timeout=30,
             )
@@ -67,7 +70,8 @@ class OneTimeSecretClient:
         if state == "new":
             final_state = "new"
         elif state in {"received", "viewed"}:
-            final_state = "viewed" if has_received_date or state == "viewed" else "new"
+            # Mantemos a regra do sistema antigo: sem data válida, ainda não marcamos como visualizado.
+            final_state = "viewed" if has_received_date else "new"
         else:
             final_state = state
 
@@ -76,4 +80,5 @@ class OneTimeSecretClient:
             "viewed": final_state == "viewed",
             "viewed_at": received if has_received_date else None,
             "raw_state": final_state,
+            "original_state": state,
         }

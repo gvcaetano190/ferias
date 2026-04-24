@@ -10,12 +10,14 @@ from apps.people.models import Acesso, Colaborador, Ferias
 class BlockRepository:
     AD_SYSTEM_NAME = "AD PRIN"
     VPN_SYSTEM_NAME = "VPN"
+    BLOCKABLE_AD_STATUSES = {"", "LIBERADO", "NB", "NP"}
+    UNLOCKABLE_AD_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
 
     def buscar_para_bloqueio_hoje(self):
         today = timezone.localdate()
         return (
             Ferias.objects.select_related("colaborador")
-            .filter(data_saida=today)
+            .filter(data_saida__lte=today, data_retorno__gte=today)
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
             .order_by("colaborador__nome")
@@ -25,11 +27,25 @@ class BlockRepository:
         today = timezone.localdate()
         return (
             Ferias.objects.select_related("colaborador")
-            .filter(data_retorno=today)
+            .filter(data_retorno__lt=today)
             .exclude(colaborador__login_ad__isnull=True)
             .exclude(colaborador__login_ad__exact="")
             .order_by("colaborador__nome")
         )
+
+    def obter_status_ad(self, colaborador_id: int) -> str:
+        acesso = (
+            Acesso.objects.filter(colaborador_id=colaborador_id, sistema=self.AD_SYSTEM_NAME)
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+        return (getattr(acesso, "status", "") or "").strip().upper()
+
+    def pode_bloquear(self, colaborador_id: int) -> bool:
+        return self.obter_status_ad(colaborador_id) in self.BLOCKABLE_AD_STATUSES
+
+    def pode_desbloquear(self, colaborador_id: int) -> bool:
+        return self.obter_status_ad(colaborador_id) in self.UNLOCKABLE_AD_STATUSES
 
     def obter_configuracao_ativa_block(self) -> BlockConfig | None:
         return BlockConfig.objects.filter(ativo=True).order_by("-updated_at").first()

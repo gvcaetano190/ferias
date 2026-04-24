@@ -1,5 +1,6 @@
 Django>=5.1,<6
 openpyxl>=3.1.0
 requests>=2.31.0
+certifi>=2024.8.30
 waitress>=3.0.2
 whitenoise>=6.8.2

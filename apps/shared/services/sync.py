@@ -3,12 +3,13 @@ from __future__ import annotations
 import csv
 import hashlib
 import re
-import urllib.request
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import openpyxl
+import requests
+import certifi
 from django.conf import settings
 
 from apps.core.models import OperationalSettings
@@ -145,8 +146,20 @@ class SpreadsheetSyncService:
 
         download_url = build_export_url(sheet_id, file_format="xlsx")
         target = settings.DOWNLOAD_DIR / f"planilha_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        urllib.request.urlretrieve(download_url, target)
+        self.fetch_file(download_url, target)
         return target
+
+    def fetch_file(self, url: str, target: Path) -> None:
+        try:
+            response = requests.get(url, timeout=60, stream=True, verify=certifi.where())
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise ValueError(f"Falha ao baixar planilha do Google Sheets: {exc}") from exc
+
+        with target.open("wb") as file_handle:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    file_handle.write(chunk)
 
     def process_workbook(self, spreadsheet: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         workbook = openpyxl.load_workbook(spreadsheet, data_only=True)
@@ -320,30 +333,55 @@ class SpreadsheetSyncService:
         return None
 
     def normalize_date(self, value: date | None, month: int, year: int) -> date | None:
-        if value is None or value.day > 12:
+        if value is None:
             return value
-        if value.month == month:
-            return value
-        try:
-            inverted = date(year, value.day, value.month)
-        except ValueError:
-            return value
-        if inverted.month == month:
-            return inverted
-        return value
+
+        normalized = value
+        if normalized.day <= 12 and normalized.month != month:
+            try:
+                inverted = date(year, normalized.day, normalized.month)
+            except ValueError:
+                inverted = normalized
+            if inverted.month == month:
+                normalized = inverted
+
+        if normalized.month == month and normalized.year != year:
+            try:
+                normalized = normalized.replace(year=year)
+            except ValueError:
+                return normalized
+
+        return normalized
 
     def normalize_return_date(self, return_date: date | None, start_date: date | None) -> date | None:
         if return_date is None or start_date is None:
             return return_date
-        if return_date >= start_date:
-            return return_date
-        if return_date.day > 12:
-            return return_date
-        try:
-            inverted = date(return_date.year, return_date.day, return_date.month)
-        except ValueError:
-            return return_date
-        return inverted if inverted >= start_date else return_date
+
+        normalized = return_date
+        if normalized < start_date and normalized.day <= 12:
+            try:
+                inverted = date(normalized.year, normalized.day, normalized.month)
+            except ValueError:
+                inverted = normalized
+            if inverted >= start_date:
+                normalized = inverted
+
+        if normalized.year != start_date.year:
+            try:
+                same_year = normalized.replace(year=start_date.year)
+            except ValueError:
+                same_year = normalized
+            if same_year >= start_date:
+                normalized = same_year
+            else:
+                try:
+                    next_year = normalized.replace(year=start_date.year + 1)
+                except ValueError:
+                    next_year = normalized
+                if next_year >= start_date:
+                    normalized = next_year
+
+        return normalized
 
     def normalize_email(self, value: Any) -> str:
         if self.is_blank(value):

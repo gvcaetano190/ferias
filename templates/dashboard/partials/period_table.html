@@ -1,0 +1,87 @@
+<div class="flex flex-col gap-4">
+  <div class="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Resumo</p>
+      <h3 class="mt-2 text-2xl font-black text-slate-900">
+        {% if selected_period %}Funcionários em {{ selected_period.label }}{% else %}Sem períodos disponíveis{% endif %}
+      </h3>
+    </div>
+    <div class="flex flex-col gap-3 lg:min-w-[280px]">
+      <p class="text-sm text-slate-500">Colaboradores ativos cadastrados: {{ active_people }}</p>
+      <div class="grid gap-3 lg:grid-cols-2">
+        <div>
+          <label class="text-sm font-semibold text-slate-600">Status da tabela</label>
+          <select
+            name="status"
+            class="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3"
+            hx-get="{% url 'dashboard:home' %}"
+            hx-target="#period-table"
+            hx-trigger="change"
+            hx-swap="innerHTML"
+            hx-include="#period-filter-form"
+            hx-vals='{"partial":"table"}'
+          >
+            {% for status in status_options %}
+              <option value="{{ status.key }}" {% if selected_status == status.key %}selected{% endif %}>
+                {{ status.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="text-sm font-semibold text-slate-600">Data de retorno</label>
+          <input
+            type="date"
+            name="return_date"
+            value="{% if selected_return_date %}{{ selected_return_date|date:'Y-m-d' }}{% endif %}"
+            class="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3"
+            hx-get="{% url 'dashboard:home' %}"
+            hx-target="#period-table"
+            hx-trigger="change"
+            hx-swap="innerHTML"
+            hx-include="#period-filter-form"
+            hx-vals='{"partial":"table"}'
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overflow-hidden rounded-3xl border border-slate-200">
+    <table class="min-w-full divide-y divide-slate-200 text-sm">
+      <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
+        <tr>
+          <th class="px-4 py-3">Nome</th>
+          <th class="px-4 py-3">Motivo</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">Saída</th>
+          <th class="px-4 py-3">Retorno</th>
+          <th class="px-4 py-3">Gestor</th>
+          <th class="px-4 py-3">Departamento</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 bg-white">
+        {% for group in grouped_rows %}
+          <tr class="bg-brand-50/70">
+            <td colspan="7" class="px-4 py-3 text-sm font-bold text-brand-900">Retorno em {{ group.label }}</td>
+          </tr>
+          {% for row in group.rows %}
+            <tr class="hover:bg-slate-50/80">
+              <td class="px-4 py-3 font-semibold text-slate-800">{{ row.nome }}</td>
+              <td class="px-4 py-3">{{ row.motivo }}</td>
+              <td class="px-4 py-3">{{ row.status_label }}</td>
+              <td class="px-4 py-3">{{ row.saida|date:"d/m/Y" }}</td>
+              <td class="px-4 py-3">{{ row.retorno|date:"d/m/Y" }}</td>
+              <td class="px-4 py-3">{{ row.gestor|default:"-" }}</td>
+              <td class="px-4 py-3">{{ row.departamento|default:"-" }}</td>
+            </tr>
+          {% endfor %}
+        {% empty %}
+          <tr>
+            <td colspan="7" class="px-4 py-8 text-center text-slate-500">Nenhum registro encontrado para os filtros selecionados.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

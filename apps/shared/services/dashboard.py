@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
+from itertools import groupby
 
 from django.utils import timezone
 
@@ -40,6 +41,11 @@ class DashboardPeriod:
 
 
 class DashboardService:
+    STATUS_ALL = "all"
+    STATUS_EM_FERIAS = "em_ferias"
+    STATUS_RETORNOU = "retornou"
+    STATUS_PROXIMO_RETORNO = "proximo_retorno"
+
     def __init__(self):
         self.colaboradores = ColaboradorRepository()
         self.ferias = FeriasRepository()
@@ -65,10 +71,52 @@ class DashboardService:
                 return period
         return periods[0]
 
-    def summary(self, period: DashboardPeriod | None) -> dict:
+    def available_statuses(self) -> list[dict[str, str]]:
+        return [
+            {"key": self.STATUS_ALL, "label": "Todos"},
+            {"key": self.STATUS_EM_FERIAS, "label": "Em férias"},
+            {"key": self.STATUS_RETORNOU, "label": "Retornou"},
+            {"key": self.STATUS_PROXIMO_RETORNO, "label": "Próximo a retornar"},
+        ]
+
+    def resolve_status(self, value: str | None) -> str:
+        available = {item["key"] for item in self.available_statuses()}
+        return value if value in available else self.STATUS_ALL
+
+    def resolve_return_date(self, value: str | None) -> date | None:
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def row_status(self, item, today):
+        if item.data_retorno and today < item.data_retorno <= today + timedelta(days=7):
+            return self.STATUS_PROXIMO_RETORNO, "Próximo a retornar"
+        if item.data_retorno and item.data_retorno < today:
+            return self.STATUS_RETORNOU, "Retornou"
+        if item.data_saida and item.data_retorno and item.data_saida <= today <= item.data_retorno:
+            return self.STATUS_EM_FERIAS, "Em férias"
+        return self.STATUS_ALL, "Fora do status"
+
+    def matches_status(self, item, selected_status: str, today) -> bool:
+        if selected_status == self.STATUS_ALL:
+            return True
+        if selected_status == self.STATUS_EM_FERIAS:
+            return bool(item.data_saida and item.data_retorno and item.data_saida <= today <= item.data_retorno)
+        if selected_status == self.STATUS_RETORNOU:
+            return bool(item.data_retorno and item.data_retorno < today)
+        if selected_status == self.STATUS_PROXIMO_RETORNO:
+            return bool(item.data_retorno and today < item.data_retorno <= today + timedelta(days=7))
+        return False
+
+    def summary(self, period: DashboardPeriod | None, status: str | None = None, return_date: str | None = None) -> dict:
         today = timezone.localdate()
         latest_sync = self.sync_logs.latest()
         active_people = self.colaboradores.active_count()
+        selected_status = self.resolve_status(status)
+        selected_return_date = self.resolve_return_date(return_date)
 
         if not period:
             return {
@@ -76,6 +124,9 @@ class DashboardService:
                 "active_people": active_people,
                 "periods": [],
                 "selected_period": None,
+                "status_options": self.available_statuses(),
+                "selected_status": selected_status,
+                "selected_return_date": selected_return_date,
                 "metrics": {},
                 "rows": [],
             }
@@ -86,26 +137,43 @@ class DashboardService:
         if today.weekday() == 4:
             next_returns = [today + timedelta(days=offset) for offset in (1, 2, 3)]
 
-        rows = [
-            {
+        rows = []
+        for item in base.order_by("data_retorno", "data_saida", "colaborador__nome"):
+            status_key, status_label = self.row_status(item, today)
+            row = {
                 "nome": item.colaborador.nome,
                 "motivo": "FÉRIAS",
                 "saida": item.data_saida,
                 "retorno": item.data_retorno,
                 "gestor": item.colaborador.gestor,
                 "departamento": item.colaborador.departamento,
+                "status_key": status_key,
+                "status_label": status_label,
             }
-            for item in base.order_by("data_saida", "colaborador__nome")
-        ]
+            if selected_return_date and item.data_retorno != selected_return_date:
+                continue
+            if self.matches_status(item, selected_status, today):
+                rows.append(row)
+
+        grouped_rows = []
+        for retorno, items in groupby(rows, key=lambda row: row["retorno"]):
+            grouped_rows.append(
+                {
+                    "retorno": retorno,
+                    "label": retorno.strftime("%d/%m/%Y") if retorno else "Sem data de retorno",
+                    "rows": list(items),
+                }
+            )
 
         metrics = {
             "saindo_hoje": base.filter(data_saida=today).count(),
             "voltando": base.filter(data_retorno__in=next_returns).count(),
             "em_ferias": base.filter(data_saida__lte=today, data_retorno__gte=today).count(),
             "proximos_7_dias": base.filter(
-                data_saida__gt=today,
-                data_saida__lte=today + timedelta(days=7),
+                data_retorno__gt=today,
+                data_retorno__lte=today + timedelta(days=7),
             ).count(),
+            "retornaram": base.filter(data_retorno__lt=today).count(),
             "total_periodo": base.count(),
         }
         return {
@@ -113,6 +181,10 @@ class DashboardService:
             "active_people": active_people,
             "periods": self.available_periods(),
             "selected_period": period,
+            "status_options": self.available_statuses(),
+            "selected_status": selected_status,
+            "selected_return_date": selected_return_date,
             "metrics": metrics,
             "rows": rows,
+            "grouped_rows": grouped_rows,
         }
