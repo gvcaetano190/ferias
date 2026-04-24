@@ -27,3 +27,32 @@ def run_now(request, pk: int):
     level(request, f"{job.name}: {result.message}")
     return redirect("scheduler:index")
 
+
+@login_required
+def start_runtime(request):
+    if request.method != "POST":
+        return redirect("scheduler:index")
+
+    ok, message = SchedulerService().start_runtime()
+    (messages.success if ok else messages.warning)(request, message)
+    return redirect("scheduler:index")
+
+
+@login_required
+def stop_runtime(request):
+    if request.method != "POST":
+        return redirect("scheduler:index")
+
+    ok, message = SchedulerService().stop_runtime()
+    (messages.success if ok else messages.warning)(request, message)
+    return redirect("scheduler:index")
+
+
+@login_required
+def restart_runtime(request):
+    if request.method != "POST":
+        return redirect("scheduler:index")
+
+    ok, message = SchedulerService().restart_runtime()
+    (messages.success if ok else messages.warning)(request, message)
+    return redirect("scheduler:index")

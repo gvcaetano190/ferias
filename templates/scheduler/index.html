@@ -11,9 +11,25 @@
         <h2 class="mt-2 text-3xl font-black text-slate-900">Trilhos do scheduler</h2>
         <p class="mt-2 max-w-3xl text-sm text-slate-500">Painel para acompanhar a cadência da planilha, do block e dos próximos serviços do Windows. Cada job mostra a próxima janela, o último resultado e a possibilidade de rodar manualmente sem sair da operação.</p>
       </div>
-      <div class="rounded-3xl border border-slate-200/80 bg-white/80 px-5 py-4 text-sm text-slate-600">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Agora</p>
-        <p class="mt-2 text-lg font-bold text-slate-900">{{ now|date:"d/m/Y H:i:s" }}</p>
+      <div class="flex flex-col items-start gap-3 lg:items-end">
+        <div class="rounded-3xl border border-slate-200/80 bg-white/80 px-5 py-4 text-sm text-slate-600">
+          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Agora</p>
+          <p class="mt-2 text-lg font-bold text-slate-900">{{ now|date:"d/m/Y H:i:s" }}</p>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <form method="post" action="{% url 'scheduler:start_runtime' %}">
+            {% csrf_token %}
+            <button class="rounded-2xl px-5 py-3 font-semibold {% if runtime.can_start %}bg-emerald-600 text-white{% else %}cursor-not-allowed bg-slate-200 text-slate-500{% endif %}" {% if not runtime.can_start %}disabled{% endif %}>Iniciar</button>
+          </form>
+          <form method="post" action="{% url 'scheduler:restart_runtime' %}">
+            {% csrf_token %}
+            <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">Reiniciar</button>
+          </form>
+          <form method="post" action="{% url 'scheduler:stop_runtime' %}">
+            {% csrf_token %}
+            <button class="rounded-2xl px-5 py-3 font-semibold {% if runtime.can_stop %}bg-rose-600 text-white{% else %}cursor-not-allowed bg-slate-200 text-slate-500{% endif %}" {% if not runtime.can_stop %}disabled{% endif %}>Parar</button>
+          </form>
+        </div>
       </div>
     </div>
   </section>
@@ -31,6 +47,9 @@
         {% else %}
           Nenhum heartbeat recebido ainda.
         {% endif %}
+      </p>
+      <p class="mt-2 text-xs text-slate-500">
+        {% if runtime.process_id %}PID {{ runtime.process_id }}{% else %}Sem PID rastreado{% endif %}
       </p>
     </article>
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">

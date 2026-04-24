@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import json
+import os
+import platform
+import signal
+import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from django.utils import timezone
 
@@ -178,26 +182,128 @@ class SchedulerService:
             self._touch_runtime(status="RUNNING", message="Ciclo concluído.", cycle=True)
             time.sleep(poll_seconds)
 
+    def start_runtime(self) -> tuple[bool, str]:
+        runtime = self._get_runtime()
+        if self._is_process_alive(runtime.process_id):
+            return False, "O scheduler já está rodando."
+
+        if platform.system().lower() != "windows":
+            return False, "O controle de iniciar/parar automático está preparado para Windows."
+
+        project_root = Path(__file__).resolve().parents[2]
+        python_exe = project_root / ".venv" / "Scripts" / "python.exe"
+        runner = project_root / "run_scheduler.py"
+        if not python_exe.exists():
+            return False, "Python da .venv não encontrado. Rode o setup do Windows primeiro."
+        if not runner.exists():
+            return False, "run_scheduler.py não encontrado."
+
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        process = subprocess.Popen(
+            [str(python_exe), str(runner)],
+            cwd=str(project_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=creationflags,
+            close_fds=True,
+        )
+        runtime.process_id = process.pid
+        runtime.last_status = "STARTING"
+        runtime.last_message = f"Scheduler iniciado pelo painel. PID {process.pid}."
+        runtime.last_heartbeat_at = timezone.now()
+        runtime.save(update_fields=["process_id", "last_status", "last_message", "last_heartbeat_at", "updated_at"])
+        return True, f"Scheduler iniciado. PID {process.pid}."
+
+    def stop_runtime(self) -> tuple[bool, str]:
+        runtime = self._get_runtime()
+        pid = runtime.process_id
+        if not pid:
+            runtime.last_status = "STOPPED"
+            runtime.last_message = "Scheduler já estava parado."
+            runtime.save(update_fields=["last_status", "last_message", "updated_at"])
+            return False, "Scheduler já está parado."
+
+        if platform.system().lower() == "windows":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0 and self._is_process_alive(pid):
+                message = (result.stderr or result.stdout or "Não foi possível parar o scheduler.").strip()
+                return False, message
+        else:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError as exc:
+                return False, f"Não foi possível parar o scheduler: {exc}"
+
+        runtime.process_id = None
+        runtime.last_status = "STOPPED"
+        runtime.last_message = "Scheduler parado pelo painel."
+        runtime.save(update_fields=["process_id", "last_status", "last_message", "updated_at"])
+        return True, "Scheduler parado com sucesso."
+
+    def restart_runtime(self) -> tuple[bool, str]:
+        stop_ok, stop_message = self.stop_runtime()
+        if not stop_ok and "já está parado" not in stop_message.lower():
+            return False, stop_message
+        time.sleep(1)
+        return self.start_runtime()
+
     def _runtime_status(self) -> dict:
-        runtime, _ = SchedulerRuntime.objects.get_or_create(singleton_key="default")
+        runtime = self._get_runtime()
         now = timezone.now()
         threshold_seconds = int(timezone.timedelta(minutes=3).total_seconds())
         is_alive = False
         if runtime.last_heartbeat_at:
             is_alive = (now - runtime.last_heartbeat_at).total_seconds() <= threshold_seconds
+        if runtime.process_id and not self._is_process_alive(runtime.process_id):
+            runtime.process_id = None
+            runtime.last_status = "STOPPED"
+            runtime.last_message = "Processo do scheduler não está mais em execução."
+            runtime.save(update_fields=["process_id", "last_status", "last_message", "updated_at"])
+            is_alive = False
         return {
             "is_running": is_alive,
             "label": "Rodando" if is_alive else "Parado",
+            "can_start": not is_alive,
+            "can_stop": bool(runtime.process_id) or is_alive,
+            "process_id": runtime.process_id,
             "last_heartbeat_at": runtime.last_heartbeat_at,
             "last_cycle_at": runtime.last_cycle_at,
             "last_message": runtime.last_message,
         }
 
     def _touch_runtime(self, *, status: str, message: str, cycle: bool = False) -> None:
-        runtime, _ = SchedulerRuntime.objects.get_or_create(singleton_key="default")
+        runtime = self._get_runtime()
         runtime.last_status = status
         runtime.last_message = message
         runtime.last_heartbeat_at = timezone.now()
+        runtime.process_id = os.getpid()
         if cycle:
             runtime.last_cycle_at = runtime.last_heartbeat_at
-        runtime.save(update_fields=["last_status", "last_message", "last_heartbeat_at", "last_cycle_at", "updated_at"])
+        runtime.save(update_fields=["process_id", "last_status", "last_message", "last_heartbeat_at", "last_cycle_at", "updated_at"])
+
+    def _get_runtime(self) -> SchedulerRuntime:
+        runtime, _ = SchedulerRuntime.objects.get_or_create(singleton_key="default")
+        return runtime
+
+    def _is_process_alive(self, pid: int | None) -> bool:
+        if not pid:
+            return False
+        if platform.system().lower() == "windows":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return str(pid) in (result.stdout or "")
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False

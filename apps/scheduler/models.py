@@ -84,6 +84,7 @@ class JobExecution(models.Model):
 
 class SchedulerRuntime(models.Model):
     singleton_key = models.CharField(max_length=32, unique=True, default="default")
+    process_id = models.IntegerField(blank=True, null=True)
     last_heartbeat_at = models.DateTimeField(blank=True, null=True)
     last_cycle_at = models.DateTimeField(blank=True, null=True)
     last_status = models.CharField(max_length=20, default="STOPPED")
