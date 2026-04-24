@@ -125,31 +125,39 @@ class BlockRepository:
         )
 
     def listar_ultimos_processamentos(self, limit: int = 20):
-        return self.listar_processamentos(
-            limit=limit,
-            date_from=self._janela_operacional_inicio(),
-            date_to=timezone.localdate(),
-        )
+        today = timezone.localdate()
+        return self.listar_processamentos(limit=limit, return_year=today.year, return_month=today.month)
 
-    def listar_processamentos(self, *, limit: int = 50, date_from=None, date_to=None):
-        processings = BlockProcessing.objects.all()
-        if date_from:
-            processings = processings.filter(executado_em__date__gte=date_from)
-        if date_to:
-            processings = processings.filter(executado_em__date__lte=date_to)
-        processings = processings.order_by("-executado_em")[:limit]
-        collaborator_ids = [processing.colaborador_id for processing in processings]
+    def listar_processamentos(self, *, limit: int = 50, return_year=None, return_month=None):
+        ferias_qs = Ferias.objects.all()
+        if return_year and return_month:
+            ferias_qs = ferias_qs.filter(data_retorno__year=return_year, data_retorno__month=return_month)
+
+        ferias_list = list(
+            ferias_qs.select_related("colaborador").order_by("colaborador_id", "-data_retorno", "-data_saida")
+        )
+        ferias_map = {}
+        for item in ferias_list:
+            ferias_map.setdefault(item.colaborador_id, []).append(item)
+
+        collaborator_ids = list(ferias_map.keys())
+        processings = list(
+            BlockProcessing.objects.filter(colaborador_id__in=collaborator_ids)
+            .order_by("-executado_em")[:limit]
+        )
+        processings = self._deduplicar_processamentos(processings)
         collaborator_map = {
             item.id: item.nome
             for item in Colaborador.objects.filter(id__in=collaborator_ids)
         }
-        ferias_map = {
-            item.colaborador_id: item
-            for item in Ferias.objects.filter(colaborador_id__in=collaborator_ids).order_by("-data_saida")
-        }
         rows = []
         for processing in processings:
-            ferias = ferias_map.get(processing.colaborador_id)
+            ferias = self._resolver_ferias_para_processamento(
+                processing,
+                ferias_map.get(processing.colaborador_id, []),
+                return_year=return_year,
+                return_month=return_month,
+            )
             rows.append(
                 {
                     "colaborador": collaborator_map.get(processing.colaborador_id, "Desconhecido"),
@@ -167,12 +175,48 @@ class BlockRepository:
             )
         return rows
 
-    def resumo_dashboard_block(self, *, date_from=None, date_to=None) -> dict[str, int]:
-        processings = BlockProcessing.objects.all()
-        if date_from:
-            processings = processings.filter(executado_em__date__gte=date_from)
-        if date_to:
-            processings = processings.filter(executado_em__date__lte=date_to)
+    def _deduplicar_processamentos(self, processings):
+        unicos = []
+        vistos = set()
+        for processing in processings:
+            chave = (
+                processing.colaborador_id,
+                processing.usuario_ad,
+                processing.acao,
+                processing.ad_status,
+                processing.vpn_status,
+                processing.resultado,
+                processing.mensagem,
+                timezone.localtime(processing.executado_em).date(),
+            )
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            unicos.append(processing)
+        return unicos
+
+    def _resolver_ferias_para_processamento(self, processing, ferias_items, *, return_year=None, return_month=None):
+        if not ferias_items:
+            return None
+
+        if return_year and return_month:
+            for item in ferias_items:
+                if item.data_retorno.year == return_year and item.data_retorno.month == return_month:
+                    return item
+
+        execution_date = timezone.localtime(processing.executado_em).date()
+        elegiveis = [item for item in ferias_items if item.data_retorno <= execution_date]
+        if elegiveis:
+            return sorted(elegiveis, key=lambda item: (item.data_retorno, item.data_saida), reverse=True)[0]
+
+        return ferias_items[0]
+
+    def resumo_dashboard_block(self, *, return_year=None, return_month=None) -> dict[str, int]:
+        ferias_qs = Ferias.objects.all()
+        if return_year and return_month:
+            ferias_qs = ferias_qs.filter(data_retorno__year=return_year, data_retorno__month=return_month)
+        collaborator_ids = list(ferias_qs.values_list("colaborador_id", flat=True).distinct())
+        processings = BlockProcessing.objects.filter(colaborador_id__in=collaborator_ids)
         grouped = (
             processings
             .values("resultado", "acao")
@@ -194,3 +238,18 @@ class BlockRepository:
             elif item["resultado"] == "IGNORADO":
                 summary["ignorados_periodo"] += item["total"]
         return summary
+
+    def listar_referencias_retorno(self, *, limit: int = 12):
+        referencias = []
+        vistos = set()
+        for item in Ferias.objects.exclude(data_retorno__isnull=True).order_by("-data_retorno").values_list(
+            "data_retorno", flat=True
+        ):
+            chave = (item.year, item.month)
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            referencias.append(chave)
+            if len(referencias) >= limit:
+                break
+        return referencias

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 
 from django.utils import timezone
 
@@ -157,49 +156,84 @@ class BlockService:
 
     def dashboard_data(self) -> dict:
         today = timezone.localdate()
-        default_start = today - timedelta(days=30)
         config = self.repository.obter_configuracao_ativa_block()
         return {
             "resumo": self.repository.resumo_dashboard_block(
-                date_from=default_start,
-                date_to=today,
+                return_year=today.year,
+                return_month=today.month,
             ),
             "ultimos_processamentos": self.repository.listar_processamentos(
                 limit=50,
-                date_from=default_start,
-                date_to=today,
+                return_year=today.year,
+                return_month=today.month,
             ),
             "configuracao_ativa": config,
             "usuario_teste_atual": self.repository.obter_usuario_teste_block(),
             "filtros": {
-                "date_from": default_start,
-                "date_to": today,
+                "reference": f"{today.year:04d}-{today.month:02d}",
             },
+            "referencias_retorno": self._referencias_retorno(),
         }
 
-    def dashboard_data_filtrada(self, *, date_from=None, date_to=None) -> dict:
+    def dashboard_data_filtrada(self, *, reference=None) -> dict:
         today = timezone.localdate()
-        default_start = today - timedelta(days=30)
-        date_from = date_from or default_start
-        date_to = date_to or today
+        reference = reference or f"{today.year:04d}-{today.month:02d}"
+        return_year, return_month = self._parse_reference(reference)
         config = self.repository.obter_configuracao_ativa_block()
         return {
             "resumo": self.repository.resumo_dashboard_block(
-                date_from=date_from,
-                date_to=date_to,
+                return_year=return_year,
+                return_month=return_month,
             ),
             "ultimos_processamentos": self.repository.listar_processamentos(
                 limit=50,
-                date_from=date_from,
-                date_to=date_to,
+                return_year=return_year,
+                return_month=return_month,
             ),
             "configuracao_ativa": config,
             "usuario_teste_atual": self.repository.obter_usuario_teste_block(),
             "filtros": {
-                "date_from": date_from,
-                "date_to": date_to,
+                "reference": f"{return_year:04d}-{return_month:02d}",
             },
+            "referencias_retorno": self._referencias_retorno(),
         }
+
+    def _parse_reference(self, reference: str | None) -> tuple[int, int]:
+        today = timezone.localdate()
+        if not reference:
+            return today.year, today.month
+        try:
+            year_str, month_str = reference.split("-", 1)
+            year = int(year_str)
+            month = int(month_str)
+            if 1 <= month <= 12:
+                return year, month
+        except (TypeError, ValueError):
+            pass
+        return today.year, today.month
+
+    def _referencias_retorno(self) -> list[dict]:
+        labels = [
+            "Janeiro",
+            "Fevereiro",
+            "Março",
+            "Abril",
+            "Maio",
+            "Junho",
+            "Julho",
+            "Agosto",
+            "Setembro",
+            "Outubro",
+            "Novembro",
+            "Dezembro",
+        ]
+        return [
+            {
+                "value": f"{year:04d}-{month:02d}",
+                "label": f"{labels[month - 1]} {year}",
+            }
+            for year, month in self.repository.listar_referencias_retorno(limit=12)
+        ]
 
     def testar_bloqueio(self) -> dict:
         usuario_teste = self.repository.obter_usuario_teste_block()

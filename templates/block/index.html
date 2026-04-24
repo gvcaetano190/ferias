@@ -72,28 +72,21 @@
         <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Histórico</p>
         <h3 class="mt-2 text-2xl font-black text-slate-900">Últimos processamentos</h3>
       </div>
-      <form method="get" class="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
+      <form method="get" class="grid gap-3 sm:grid-cols-[minmax(0,280px)_auto] lg:flex lg:flex-wrap lg:items-end">
         <label class="flex flex-col gap-2 text-sm text-slate-600">
-          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Data inicial</span>
-          <input
-            type="date"
-            name="date_from"
-            value="{{ filtros.date_from|date:'Y-m-d' }}"
+          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Mês de retorno</span>
+          <select
+            name="reference"
             class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-700 shadow-soft outline-none transition focus:border-brand-400"
           >
-        </label>
-        <label class="flex flex-col gap-2 text-sm text-slate-600">
-          <span class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Data final</span>
-          <input
-            type="date"
-            name="date_to"
-            value="{{ filtros.date_to|date:'Y-m-d' }}"
-            class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-700 shadow-soft outline-none transition focus:border-brand-400"
-          >
+            {% for item in referencias_retorno %}
+              <option value="{{ item.value }}" {% if item.value == filtros.reference %}selected{% endif %}>{{ item.label }}</option>
+            {% endfor %}
+          </select>
         </label>
         <div class="flex gap-3">
           <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">Aplicar</button>
-          <a href="{% url 'block:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Últimos 30 dias</a>
+          <a href="{% url 'block:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Mês atual</a>
         </div>
       </form>
     </div>
