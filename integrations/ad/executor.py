@@ -84,6 +84,7 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
         "message": payload.get("message", stderr or "Sem mensagem"),
         "user_found": bool(payload.get("user_found", False)),
         "is_in_printi_acesso": bool(payload.get("is_in_printi_acesso", False)),
+        "already_in_desired_state": bool(payload.get("already_in_desired_state", False)),
     }
 
 
@@ -110,4 +111,5 @@ def _error_result(usuario_ad: str, message: str) -> dict:
         "message": message,
         "user_found": False,
         "is_in_printi_acesso": False,
+        "already_in_desired_state": False,
     }

@@ -5,8 +5,8 @@ from apps.block.models import BlockConfig, BlockProcessing
 
 @admin.register(BlockConfig)
 class BlockConfigAdmin(admin.ModelAdmin):
-    list_display = ("nome", "usuario_teste_ad", "ativo", "updated_at")
-    list_filter = ("ativo",)
+    list_display = ("nome", "usuario_teste_ad", "dry_run", "ativo", "updated_at")
+    list_filter = ("ativo", "dry_run")
     search_fields = ("nome", "usuario_teste_ad")
     readonly_fields = ("created_at", "updated_at")
 

@@ -10,11 +10,27 @@
         <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">AD Block</p>
         <h2 class="mt-2 text-3xl font-black text-slate-900">Bloqueio e desbloqueio automático</h2>
         <p class="mt-2 text-sm text-slate-500">A rotina consulta férias e status atuais do AD para decidir quem pode ser bloqueado ou desbloqueado automaticamente.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <span class="rounded-full px-3 py-1 text-xs font-semibold {% if dry_run %}bg-amber-100 text-amber-700{% else %}bg-emerald-100 text-emerald-700{% endif %}">
+            {% if dry_run %}Modo simulação ativo{% else %}Modo real ativo{% endif %}
+          </span>
+          <span class="text-sm text-slate-500">
+            {% if dry_run %}
+              O block avalia a lógica e grava histórico, mas não chama PowerShell nem altera AD/VPN.
+            {% else %}
+              O block executa PowerShell e atualiza AD/VPN no banco quando encontra pendências.
+            {% endif %}
+          </span>
+        </div>
       </div>
-      <form method="post" action="{% url 'block:executar' %}">
-        {% csrf_token %}
-        <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">Executar verificação</button>
-      </form>
+      <button
+        class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white"
+        hx-get="{% url 'block:preview' %}"
+        hx-target="#block-preview-modal-root"
+        hx-swap="innerHTML"
+      >
+        {% if dry_run %}Pré-visualizar simulação{% else %}Executar verificação{% endif %}
+      </button>
     </div>
   </div>
 
@@ -133,4 +149,5 @@
     </div>
   </section>
 </section>
+<div id="block-preview-modal-root"></div>
 {% endblock %}

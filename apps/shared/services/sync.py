@@ -19,6 +19,8 @@ from apps.shared.services.google_sheets import build_export_url, extract_sheet_i
 
 
 class SpreadsheetSyncService:
+    MAX_EXPECTED_VACATION_DAYS = 62
+
     def __init__(self):
         self.operational_settings = OperationalSettings.get_solo()
         self.colaboradores = ColaboradorRepository()
@@ -358,11 +360,14 @@ class SpreadsheetSyncService:
             return return_date
 
         normalized = return_date
-        if normalized.day <= 12 and normalized.month != start_date.month:
+        inverted = None
+        if normalized.day <= 12:
             try:
                 inverted = date(normalized.year, normalized.day, normalized.month)
             except ValueError:
-                inverted = normalized
+                inverted = None
+
+        if inverted and normalized.month != start_date.month:
             # Corrige casos como 04/10 interpretado como outubro quando o contexto real é 10/04.
             if inverted.month == start_date.month and inverted >= start_date:
                 normalized = inverted
@@ -389,6 +394,14 @@ class SpreadsheetSyncService:
                     next_year = normalized
                 if next_year >= start_date:
                     normalized = next_year
+
+        if inverted and inverted >= start_date:
+            current_duration = (normalized - start_date).days
+            inverted_duration = (inverted - start_date).days
+            # Se a data atual gera um afastamento muito longo e a invertida gera uma duração plausível,
+            # preferimos a invertida para evitar casos como 04/10 no lugar de 10/04.
+            if current_duration > self.MAX_EXPECTED_VACATION_DAYS and 0 <= inverted_duration <= self.MAX_EXPECTED_VACATION_DAYS:
+                normalized = inverted
 
         return normalized
 

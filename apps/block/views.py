@@ -32,7 +32,7 @@ def executar(request):
     messages.success(
         request,
         (
-            f"Verificação concluída. "
+            f"{'Simulação concluída' if resumo.get('dry_run') else 'Verificação concluída'}. "
             f"Bloqueios: {resumo['bloqueios_feitos']} | "
             f"Desbloqueios: {resumo['desbloqueios_feitos']} | "
             f"Erros: {resumo['erros']} | "
@@ -40,6 +40,13 @@ def executar(request):
         ),
     )
     return redirect("block:index")
+
+
+@login_required
+def preview(request):
+    service = BlockService()
+    context = service.previsualizar_verificacao_block()
+    return render(request, "block/partials/preview_modal.html", context)
 
 
 @login_required

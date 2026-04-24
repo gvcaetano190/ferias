@@ -156,7 +156,7 @@ class SchedulerService:
             return SchedulerRunResult(
                 status=JobExecution.STATUS_SUCCESS,
                 message=(
-                    f"Block executado. "
+                    f"{'Block simulado' if result.get('dry_run') else 'Block executado'}. "
                     f"Bloqueios={result['bloqueios_feitos']} "
                     f"Desbloqueios={result['desbloqueios_feitos']} "
                     f"Erros={result['erros']}"

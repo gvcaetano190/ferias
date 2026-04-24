@@ -5,6 +5,7 @@ class BlockConfig(models.Model):
     nome = models.CharField(max_length=120, default="Configuração principal")
     usuario_teste_ad = models.CharField(max_length=150, blank=True)
     ativo = models.BooleanField(default=True)
+    dry_run = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -28,33 +28,120 @@ class BlockService:
     def __init__(self):
         self.repository = BlockRepository()
 
-    def processar_verificacao_block(self) -> dict:
-        result = BlockServiceResult()
-        result = self.processar_bloqueios(result)
-        result = self.processar_desbloqueios(result)
-        return result.as_dict()
+    def previsualizar_verificacao_block(self) -> dict:
+        config = self.repository.obter_configuracao_ativa_block()
+        dry_run = bool(config and config.dry_run)
+        preview_rows: list[dict] = []
 
-    def processar_bloqueios(self, result: BlockServiceResult) -> BlockServiceResult:
         seen_collaborators: set[int] = set()
         for ferias in self.repository.buscar_para_bloqueio_hoje():
             if ferias.colaborador_id in seen_collaborators:
                 continue
             seen_collaborators.add(ferias.colaborador_id)
-            outcome = self.processar_usuario_bloqueio(ferias)
+            row = self._preview_usuario_bloqueio(ferias)
+            if row:
+                preview_rows.append(row)
+
+        seen_collaborators = set()
+        for ferias in self.repository.buscar_para_desbloqueio_hoje():
+            if ferias.colaborador_id in seen_collaborators:
+                continue
+            seen_collaborators.add(ferias.colaborador_id)
+            row = self._preview_usuario_desbloqueio(ferias)
+            if row:
+                preview_rows.append(row)
+
+        preview_rows.sort(
+            key=lambda item: (
+                item["acao_ordem"],
+                item["data_referencia"] or timezone.localdate(),
+                item["colaborador"],
+            )
+        )
+
+        return {
+            "dry_run": dry_run,
+            "rows": preview_rows,
+            "summary": {
+                "bloqueios": sum(1 for item in preview_rows if item["acao"] == "BLOQUEIO"),
+                "desbloqueios": sum(1 for item in preview_rows if item["acao"] == "DESBLOQUEIO"),
+                "total": len(preview_rows),
+            },
+        }
+
+    def processar_verificacao_block(self) -> dict:
+        config = self.repository.obter_configuracao_ativa_block()
+        dry_run = bool(config and config.dry_run)
+        result = BlockServiceResult()
+        result = self.processar_bloqueios(result, dry_run=dry_run)
+        result = self.processar_desbloqueios(result, dry_run=dry_run)
+        payload = result.as_dict()
+        payload["dry_run"] = dry_run
+        return payload
+
+    def _preview_usuario_bloqueio(self, ferias) -> dict | None:
+        collaborator = ferias.colaborador
+        ad_status_atual = self.repository.obter_status_ad(collaborator.id)
+        if not self.repository.pode_bloquear(collaborator.id):
+            return None
+        if self.repository.ja_processado_hoje(collaborator.id, "BLOQUEIO"):
+            return None
+        return {
+            "colaborador": collaborator.nome,
+            "email": collaborator.email or "-",
+            "usuario_ad": collaborator.login_ad or "-",
+            "acao": "BLOQUEIO",
+            "acao_label": "Bloquear AD",
+            "acao_ordem": 0,
+            "data_saida": ferias.data_saida,
+            "data_retorno": ferias.data_retorno,
+            "data_referencia": ferias.data_saida,
+            "status_atual_ad": ad_status_atual or "-",
+            "mensagem": "Colaborador em férias com AD ainda liberado/pendente de bloqueio.",
+        }
+
+    def _preview_usuario_desbloqueio(self, ferias) -> dict | None:
+        collaborator = ferias.colaborador
+        ad_status_atual = self.repository.obter_status_ad(collaborator.id)
+        if not self.repository.pode_desbloquear(collaborator.id):
+            return None
+        if self.repository.ja_processado_hoje(collaborator.id, "DESBLOQUEIO"):
+            return None
+        return {
+            "colaborador": collaborator.nome,
+            "email": collaborator.email or "-",
+            "usuario_ad": collaborator.login_ad or "-",
+            "acao": "DESBLOQUEIO",
+            "acao_label": "Desbloquear AD",
+            "acao_ordem": 1,
+            "data_saida": ferias.data_saida,
+            "data_retorno": ferias.data_retorno,
+            "data_referencia": ferias.data_retorno,
+            "status_atual_ad": ad_status_atual or "-",
+            "mensagem": "Colaborador já retornou e ainda está com AD bloqueado.",
+        }
+
+    def processar_bloqueios(self, result: BlockServiceResult, *, dry_run: bool = False) -> BlockServiceResult:
+        seen_collaborators: set[int] = set()
+        for ferias in self.repository.buscar_para_bloqueio_hoje():
+            if ferias.colaborador_id in seen_collaborators:
+                continue
+            seen_collaborators.add(ferias.colaborador_id)
+            outcome = self.processar_usuario_bloqueio(ferias, dry_run=dry_run)
             self._acumular_resultado(result, outcome, acao="BLOQUEIO")
         return result
 
-    def processar_desbloqueios(self, result: BlockServiceResult) -> BlockServiceResult:
+    def processar_desbloqueios(self, result: BlockServiceResult, *, dry_run: bool = False) -> BlockServiceResult:
         seen_collaborators: set[int] = set()
         for ferias in self.repository.buscar_para_desbloqueio_hoje():
             if ferias.colaborador_id in seen_collaborators:
                 continue
             seen_collaborators.add(ferias.colaborador_id)
-            outcome = self.processar_usuario_desbloqueio(ferias)
+            outcome = self.processar_usuario_desbloqueio(ferias, dry_run=dry_run)
             self._acumular_resultado(result, outcome, acao="DESBLOQUEIO")
         return result
 
-    def processar_usuario_bloqueio(self, ferias) -> dict:
+    def processar_usuario_bloqueio(self, ferias, *, dry_run: bool = False) -> dict:
         collaborator = ferias.colaborador
         ad_status_atual = self.repository.obter_status_ad(collaborator.id)
         if not self.repository.pode_bloquear(collaborator.id):
@@ -87,6 +174,21 @@ class BlockService:
             )
             return {"resultado": "IGNORADO"}
 
+        if dry_run:
+            self.repository.salvar_resultado_execucao(
+                colaborador_id=collaborator.id,
+                usuario_ad=collaborator.login_ad or "",
+                email=collaborator.email or "",
+                acao="BLOQUEIO",
+                data_saida=ferias.data_saida,
+                data_retorno=ferias.data_retorno,
+                ad_status=ad_status_atual or "SIMULADO",
+                vpn_status="SIMULADO",
+                resultado="IGNORADO",
+                mensagem="Simulação: bloqueio elegível, mas PowerShell não foi executado.",
+            )
+            return {"resultado": "IGNORADO"}
+
         ad_result = bloquear_usuario_ad(collaborator.login_ad or "")
         ad_status = ad_result.get("ad_status", "ERRO")
         vpn_status = ad_result.get("vpn_status", "NP")
@@ -114,7 +216,7 @@ class BlockService:
         )
         return {"resultado": resultado}
 
-    def processar_usuario_desbloqueio(self, ferias) -> dict:
+    def processar_usuario_desbloqueio(self, ferias, *, dry_run: bool = False) -> dict:
         collaborator = ferias.colaborador
         ad_status_atual = self.repository.obter_status_ad(collaborator.id)
         if not self.repository.pode_desbloquear(collaborator.id):
@@ -144,6 +246,21 @@ class BlockService:
                 vpn_status="NP",
                 resultado="IGNORADO",
                 mensagem="Desbloqueio já executado com sucesso hoje.",
+            )
+            return {"resultado": "IGNORADO"}
+
+        if dry_run:
+            self.repository.salvar_resultado_execucao(
+                colaborador_id=collaborator.id,
+                usuario_ad=collaborator.login_ad or "",
+                email=collaborator.email or "",
+                acao="DESBLOQUEIO",
+                data_saida=ferias.data_saida,
+                data_retorno=ferias.data_retorno,
+                ad_status=ad_status_atual or "SIMULADO",
+                vpn_status="SIMULADO",
+                resultado="IGNORADO",
+                mensagem="Simulação: desbloqueio elegível, mas PowerShell não foi executado.",
             )
             return {"resultado": "IGNORADO"}
 
@@ -189,6 +306,7 @@ class BlockService:
             ),
             "configuracao_ativa": config,
             "usuario_teste_atual": self.repository.obter_usuario_teste_block(),
+            "dry_run": bool(config and config.dry_run),
             "filtros": {
                 "reference": f"{today.year:04d}-{today.month:02d}",
             },
@@ -212,6 +330,7 @@ class BlockService:
             ),
             "configuracao_ativa": config,
             "usuario_teste_atual": self.repository.obter_usuario_teste_block(),
+            "dry_run": bool(config and config.dry_run),
             "filtros": {
                 "reference": f"{return_year:04d}-{return_month:02d}",
             },
