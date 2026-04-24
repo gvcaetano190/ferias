@@ -358,6 +358,15 @@ class SpreadsheetSyncService:
             return return_date
 
         normalized = return_date
+        if normalized.day <= 12 and normalized.month != start_date.month:
+            try:
+                inverted = date(normalized.year, normalized.day, normalized.month)
+            except ValueError:
+                inverted = normalized
+            # Corrige casos como 04/10 interpretado como outubro quando o contexto real é 10/04.
+            if inverted.month == start_date.month and inverted >= start_date:
+                normalized = inverted
+
         if normalized < start_date and normalized.day <= 12:
             try:
                 inverted = date(normalized.year, normalized.day, normalized.month)

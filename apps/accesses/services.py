@@ -241,15 +241,8 @@ class AccessesService:
 
         has_liberado = any(status in ACTIVE_DURING_VACATION_STATUSES for status in effective_statuses)
         has_bloqueado = any(status in RETURNED_BLOCKED_STATUSES for status in effective_statuses)
-        has_nb = any(status in PENDING_DURING_VACATION_STATUSES for status in effective_statuses)
 
         if has_liberado and has_bloqueado:
-            return "PENDENTE"
-
-        if ferias_ativa and has_nb:
-            return "PENDENTE"
-
-        if ferias_ativa and has_liberado:
             return "PENDENTE"
 
         if has_bloqueado:
