@@ -3,9 +3,11 @@ from django.db import models
 
 class ScheduledJob(models.Model):
     JOB_TYPE_SYNC = "sync_spreadsheet"
+    JOB_TYPE_VERIFY_BLOCK = "verify_block_candidates"
     JOB_TYPE_BLOCK = "run_block"
     JOB_TYPE_CHOICES = (
         (JOB_TYPE_SYNC, "Sincronizar planilha"),
+        (JOB_TYPE_VERIFY_BLOCK, "Verificar fila do block"),
         (JOB_TYPE_BLOCK, "Executar block"),
     )
 
@@ -68,6 +70,7 @@ class JobExecution(models.Model):
     started_at = models.DateTimeField()
     finished_at = models.DateTimeField(blank=True, null=True)
     status = models.CharField(max_length=20, default=STATUS_RUNNING)
+    cancel_requested = models.BooleanField(default=False, db_default=False, null=True, blank=True)
     message = models.TextField(blank=True)
     result_payload = models.JSONField(blank=True, null=True)
     trigger_source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_SCHEDULER)
@@ -98,3 +101,19 @@ class SchedulerRuntime(models.Model):
 
     def __str__(self) -> str:
         return f"Scheduler runtime - {self.last_status}"
+
+
+class SchedulerSettings(models.Model):
+    nome = models.CharField(max_length=120, default="Configuração principal")
+    auto_start_with_server = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "scheduler_settings"
+        ordering = ["id"]
+        verbose_name = "Configuração do scheduler"
+        verbose_name_plural = "Configurações do scheduler"
+
+    def __str__(self) -> str:
+        return f"{self.nome} ({'auto start ligado' if self.auto_start_with_server else 'auto start desligado'})"

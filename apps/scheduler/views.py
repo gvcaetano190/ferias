@@ -56,3 +56,20 @@ def restart_runtime(request):
     ok, message = SchedulerService().restart_runtime()
     (messages.success if ok else messages.warning)(request, message)
     return redirect("scheduler:index")
+
+
+@login_required
+def force_stop_modal(request):
+    service = SchedulerService()
+    context = service.force_stop_targets()
+    return render(request, "scheduler/partials/force_stop_modal.html", context)
+
+
+@login_required
+def force_stop_execution(request, execution_id: int):
+    if request.method != "POST":
+        return redirect("scheduler:index")
+
+    ok, message = SchedulerService().force_stop_execution(execution_id)
+    (messages.success if ok else messages.warning)(request, message)
+    return redirect("scheduler:index")

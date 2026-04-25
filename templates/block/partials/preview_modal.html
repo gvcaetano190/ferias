@@ -1,17 +1,11 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4" onclick="if (event.target === this) { document.getElementById('block-preview-modal-root').innerHTML = ''; }">
-  <div class="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-[32px] border border-white/70 bg-white shadow-2xl">
+  <div class="max-h-[88vh] w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/70 bg-white shadow-2xl">
     <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
       <div>
         <p class="text-xs font-semibold uppercase tracking-[0.28em] text-brand-500">Prévia operacional</p>
-        <h3 class="mt-2 text-2xl font-black text-slate-900">
-          {% if dry_run %}Simulação do block{% else %}Pessoas que o block vai processar{% endif %}
-        </h3>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">Pré-visualização da verificação</h3>
         <p class="mt-2 text-sm text-slate-500">
-          {% if dry_run %}
-            A lógica será avaliada sem chamar PowerShell nem alterar AD/VPN.
-          {% else %}
-            Esta lista mostra quem será afetado se você confirmar a execução agora.
-          {% endif %}
+          Esta prévia usa apenas dados do banco e do histórico do módulo block. Nenhum bloqueio, desbloqueio, consulta AD ou alteração em acessos é executado aqui.
         </p>
       </div>
       <button type="button" class="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600" onclick="document.getElementById('block-preview-modal-root').innerHTML = ''">
@@ -19,14 +13,18 @@
       </button>
     </div>
 
-    <div class="grid gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4 md:grid-cols-3">
+    <div class="grid gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4 md:grid-cols-4">
       <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Bloqueios</p>
-        <p class="mt-2 text-3xl font-black text-slate-900">{{ summary.bloqueios }}</p>
+        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Bloquear</p>
+        <p class="mt-2 text-3xl font-black text-slate-900">{{ summary.bloquear }}</p>
       </article>
       <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Desbloqueios</p>
-        <p class="mt-2 text-3xl font-black text-slate-900">{{ summary.desbloqueios }}</p>
+        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Desbloquear</p>
+        <p class="mt-2 text-3xl font-black text-slate-900">{{ summary.desbloquear }}</p>
+      </article>
+      <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+        <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Ignorar</p>
+        <p class="mt-2 text-3xl font-black text-slate-900">{{ summary.ignorar }}</p>
       </article>
       <article class="rounded-2xl border border-slate-200 bg-white px-4 py-3">
         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Total</p>
@@ -37,16 +35,17 @@
     <div class="max-h-[52vh] overflow-auto px-6 py-5">
       {% if rows %}
         <div class="overflow-x-auto rounded-3xl border border-slate-200">
-          <table class="min-w-[1000px] divide-y divide-slate-200 text-sm">
+          <table class="min-w-[1180px] divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
               <tr>
                 <th class="px-4 py-3">Colaborador</th>
-                <th class="px-4 py-3">Email</th>
                 <th class="px-4 py-3">Usuário AD</th>
-                <th class="px-4 py-3">Saída</th>
-                <th class="px-4 py-3">Retorno</th>
-                <th class="px-4 py-3">Status AD atual</th>
-                <th class="px-4 py-3">Ação planejada</th>
+                <th class="px-4 py-3">Email</th>
+                <th class="px-4 py-3">Data saída</th>
+                <th class="px-4 py-3">Data retorno</th>
+                <th class="px-4 py-3">AD atual</th>
+                <th class="px-4 py-3">VPN atual</th>
+                <th class="px-4 py-3">Ação prevista</th>
                 <th class="px-4 py-3">Motivo</th>
               </tr>
             </thead>
@@ -54,17 +53,18 @@
               {% for row in rows %}
                 <tr>
                   <td class="px-4 py-3 font-semibold text-slate-800">{{ row.colaborador }}</td>
-                  <td class="px-4 py-3">{{ row.email }}</td>
                   <td class="px-4 py-3">{{ row.usuario_ad }}</td>
+                  <td class="px-4 py-3">{{ row.email }}</td>
                   <td class="px-4 py-3">{{ row.data_saida|date:"d/m/Y"|default:"-" }}</td>
                   <td class="px-4 py-3">{{ row.data_retorno|date:"d/m/Y"|default:"-" }}</td>
                   <td class="px-4 py-3">{{ row.status_atual_ad }}</td>
+                  <td class="px-4 py-3">{{ row.status_atual_vpn }}</td>
                   <td class="px-4 py-3">
-                    <span class="rounded-full px-3 py-1 text-xs font-semibold {% if row.acao == 'BLOQUEIO' %}bg-amber-100 text-amber-700{% else %}bg-sky-100 text-sky-700{% endif %}">
-                      {{ row.acao_label }}
+                    <span class="rounded-full px-3 py-1 text-xs font-semibold {% if row.acao_prevista == 'BLOQUEAR' %}bg-amber-100 text-amber-700{% elif row.acao_prevista == 'DESBLOQUEAR' %}bg-sky-100 text-sky-700{% else %}bg-slate-100 text-slate-700{% endif %}">
+                      {{ row.acao_prevista }}
                     </span>
                   </td>
-                  <td class="px-4 py-3 text-slate-600">{{ row.mensagem }}</td>
+                  <td class="px-4 py-3 text-slate-600">{{ row.motivo }}</td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -72,27 +72,23 @@
         </div>
       {% else %}
         <div class="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center text-slate-500">
-          Nenhuma pessoa elegível para bloqueio ou desbloqueio neste momento.
+          Nenhum usuário encontrado para bloqueio, desbloqueio ou ignorar neste momento.
         </div>
       {% endif %}
     </div>
 
     <div class="flex flex-col gap-3 border-t border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
       <p class="text-sm text-slate-500">
-        {% if dry_run %}
-          Confirme no modal apenas para gravar a simulação. Nenhuma alteração real será feita em AD/VPN.
-        {% else %}
-          Se confirmar, o block executa as ações acima e atualiza AD/VPN no banco.
-        {% endif %}
+        O botão abaixo executa o fluxo real já existente. A pré-visualização acima continua apenas como consulta.
       </p>
       <div class="flex gap-3">
         <button type="button" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700" onclick="document.getElementById('block-preview-modal-root').innerHTML = ''">
-          Cancelar
+          Fechar
         </button>
         <form method="post" action="{% url 'block:executar' %}">
           {% csrf_token %}
           <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">
-            {% if dry_run %}Confirmar simulação{% else %}Executar agora{% endif %}
+            Executar verificação agora
           </button>
         </form>
       </div>

@@ -8,6 +8,7 @@ from django.db.utils import OperationalError, ProgrammingError
 class OperationalSettings(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     company_name = models.CharField(max_length=120, default="Sistema de Controle de Férias")
+    auto_start_scheduler_with_server = models.BooleanField(default=False)
     google_sheets_url = models.URLField(blank=True)
     sync_enabled = models.BooleanField(default=True)
     cache_minutes = models.PositiveIntegerField(default=60)

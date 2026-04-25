@@ -1,4 +1,6 @@
 @echo off
+setlocal
+
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" (
@@ -6,5 +8,12 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
-call .venv\Scripts\activate.bat
-python run_scheduler.py
+set "PYTHON_EXE=.venv\Scripts\python.exe"
+if exist ".venv\Scripts\pythonw.exe" (
+  set "PYTHON_EXE=.venv\Scripts\pythonw.exe"
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ^
+  "Start-Process -FilePath '%CD%\%PYTHON_EXE%' -ArgumentList 'run_scheduler.py' -WorkingDirectory '%CD%' -WindowStyle Hidden"
+
+exit /b 0

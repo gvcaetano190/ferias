@@ -35,6 +35,7 @@ def executar(request):
             f"{'Simulação concluída' if resumo.get('dry_run') else 'Verificação concluída'}. "
             f"Bloqueios: {resumo['bloqueios_feitos']} | "
             f"Desbloqueios: {resumo['desbloqueios_feitos']} | "
+            f"Sincronizados: {resumo['sincronizados']} | "
             f"Erros: {resumo['erros']} | "
             f"Ignorados: {resumo['ignorados']}"
         ),
@@ -47,6 +48,16 @@ def preview(request):
     service = BlockService()
     context = service.previsualizar_verificacao_block()
     return render(request, "block/partials/preview_modal.html", context)
+
+
+@login_required
+def verification_modal(request):
+    service = BlockService()
+    run_id = request.GET.get("run_id")
+    context = service.ver_detalhes_verificacao_operacional(
+        run_id=int(run_id) if run_id and run_id.isdigit() else None
+    )
+    return render(request, "block/partials/verification_modal.html", context)
 
 
 @login_required

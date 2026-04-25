@@ -57,6 +57,14 @@ class BlockRepository:
         )
         return (getattr(acesso, "status", "") or "").strip().upper()
 
+    def obter_status_vpn(self, colaborador_id: int) -> str:
+        acesso = (
+            Acesso.objects.filter(colaborador_id=colaborador_id, sistema=self.VPN_SYSTEM_NAME)
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+        return (getattr(acesso, "status", "") or "").strip().upper()
+
     def pode_bloquear(self, colaborador_id: int) -> bool:
         return self.obter_status_ad(colaborador_id) in self.BLOCKABLE_AD_STATUSES
 
@@ -71,6 +79,9 @@ class BlockRepository:
         if config and config.usuario_teste_ad.strip():
             return config.usuario_teste_ad.strip()
         return None
+
+    def obter_colaborador(self, colaborador_id: int) -> Colaborador | None:
+        return Colaborador.objects.filter(id=colaborador_id).first()
 
     def ja_processado_hoje(self, colaborador_id: int, acao: str) -> bool:
         today = timezone.localdate()
@@ -241,6 +252,7 @@ class BlockRepository:
         summary = {
             "bloqueados_periodo": 0,
             "desbloqueados_periodo": 0,
+            "sincronizados_periodo": 0,
             "erros_periodo": 0,
             "ignorados_periodo": 0,
         }
@@ -249,6 +261,8 @@ class BlockRepository:
                 summary["bloqueados_periodo"] += item["total"]
             elif item["resultado"] == "SUCESSO" and item["acao"] == "DESBLOQUEIO":
                 summary["desbloqueados_periodo"] += item["total"]
+            elif item["resultado"] == "SINCRONIZADO":
+                summary["sincronizados_periodo"] += item["total"]
             elif item["resultado"] == "ERRO":
                 summary["erros_periodo"] += item["total"]
             elif item["resultado"] == "IGNORADO":

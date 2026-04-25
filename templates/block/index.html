@@ -16,21 +16,29 @@
           </span>
           <span class="text-sm text-slate-500">
             {% if dry_run %}
-              O block avalia a lógica e grava histórico, mas não chama PowerShell nem altera AD/VPN.
+              O block pode rodar em simulação, mas a pré-visualização abaixo consulta apenas o banco e não altera nada.
             {% else %}
-              O block executa PowerShell e atualiza AD/VPN no banco quando encontra pendências.
+              A pré-visualização abaixo usa apenas banco e histórico; a execução real continua no fluxo existente.
             {% endif %}
           </span>
         </div>
       </div>
-      <button
-        class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white"
-        hx-get="{% url 'block:preview' %}"
-        hx-target="#block-preview-modal-root"
-        hx-swap="innerHTML"
-      >
-        {% if dry_run %}Pré-visualizar simulação{% else %}Executar verificação{% endif %}
-      </button>
+      <div class="flex flex-wrap gap-3">
+        <button
+          class="rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700"
+          hx-get="{% url 'block:preview' %}"
+          hx-target="#block-preview-modal-root"
+          hx-swap="innerHTML"
+        >
+          Pré-visualizar verificação
+        </button>
+        <form method="post" action="{% url 'block:executar' %}">
+          {% csrf_token %}
+          <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">
+            Executar verificação
+          </button>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -63,7 +71,7 @@
     </div>
   </section>
 
-  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
       <p class="text-sm text-slate-500">Bloqueados no período</p>
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.bloqueados_periodo }}</p>
@@ -73,6 +81,10 @@
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.desbloqueados_periodo }}</p>
     </article>
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Sincronizados no período</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.sincronizados_periodo }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
       <p class="text-sm text-slate-500">Erros no período</p>
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.erros_periodo }}</p>
     </article>
@@ -80,6 +92,64 @@
       <p class="text-sm text-slate-500">Ignorados no período</p>
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.ignorados_periodo }}</p>
     </article>
+  </section>
+
+  <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Verificação operacional</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">Lista inicial x lista final</h3>
+        <p class="mt-2 text-sm text-slate-500">A task de verificação consulta o AD, reduz a fila final e registra por que cada pessoa permaneceu, saiu da fila ou teve o status local sincronizado.</p>
+      </div>
+      <div class="flex flex-col gap-3 lg:items-end">
+        {% if ultima_verificacao %}
+          <div class="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm text-slate-600">
+            <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Última execução</p>
+            <p class="mt-2 text-lg font-bold text-slate-900">{{ ultima_verificacao.started_at|date:"d/m/Y H:i:s" }}</p>
+            <p class="mt-2">{{ ultima_verificacao.summary_message }}</p>
+          </div>
+          <button
+            class="rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700"
+            hx-get="{% url 'block:verification_modal' %}"
+            hx-target="#block-preview-modal-root"
+            hx-swap="innerHTML"
+          >
+            Ver lista completa
+          </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="mt-6">
+      <div class="overflow-x-auto rounded-3xl border border-slate-200">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+          <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
+            <tr>
+              <th class="px-4 py-3">Data/Hora</th>
+              <th class="px-4 py-3">Inicial</th>
+              <th class="px-4 py-3">Final</th>
+              <th class="px-4 py-3">Sincronizados</th>
+              <th class="px-4 py-3">Erros</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 bg-white">
+            {% for run in ultimas_verificacoes %}
+              <tr class="hover:bg-slate-50/80">
+                <td class="px-4 py-3 font-semibold text-slate-800">{{ run.started_at|date:"d/m/Y H:i:s" }}</td>
+                <td class="px-4 py-3">B {{ run.total_inicial_bloqueio }} / D {{ run.total_inicial_desbloqueio }}</td>
+                <td class="px-4 py-3">B {{ run.total_final_bloqueio }} / D {{ run.total_final_desbloqueio }}</td>
+                <td class="px-4 py-3">{{ run.total_sincronizados }}</td>
+                <td class="px-4 py-3">{{ run.total_erros }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="px-4 py-8 text-center text-slate-500">Nenhuma verificação operacional registrada ainda.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">

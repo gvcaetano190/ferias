@@ -1,0 +1,22 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div id="content-main">
+    <h1>Reiniciar aplicação web</h1>
+    <p>
+      Esta ação reinicia o servidor web em background para carregar o código mais recente.
+      Se o scheduler estiver rodando separado, ele também pode ser reiniciado junto para manter o ambiente alinhado.
+    </p>
+    <p>
+      A interface pode ficar indisponível por alguns segundos durante o reinício.
+    </p>
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="submit-row">
+        <input type="submit" value="Reiniciar agora" class="default">
+        <a href="{% url 'admin:core_operationalsettings_change' original.pk %}" class="button cancel-link">Cancelar</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

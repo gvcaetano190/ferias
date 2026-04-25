@@ -29,6 +29,14 @@
             {% csrf_token %}
             <button class="rounded-2xl px-5 py-3 font-semibold {% if runtime.can_stop %}bg-rose-600 text-white{% else %}cursor-not-allowed bg-slate-200 text-slate-500{% endif %}" {% if not runtime.can_stop %}disabled{% endif %}>Parar</button>
           </form>
+          <button
+            class="rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700"
+            hx-get="{% url 'scheduler:force_stop_modal' %}"
+            hx-target="#scheduler-force-stop-modal-root"
+            hx-swap="innerHTML"
+          >
+            Forçar encerrar task
+          </button>
         </div>
       </div>
     </div>
@@ -38,8 +46,8 @@
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
       <p class="text-sm text-slate-500">Status do scheduler</p>
       <div class="mt-3 flex items-center gap-3">
-        <span class="inline-flex h-3 w-3 rounded-full {% if runtime.is_running %}bg-emerald-500{% else %}bg-rose-500{% endif %}"></span>
-        <p class="text-2xl font-black {% if runtime.is_running %}text-emerald-700{% else %}text-rose-700{% endif %}">{{ runtime.label }}</p>
+        <span class="inline-flex h-3 w-3 rounded-full {% if runtime.is_running %}bg-emerald-500{% elif runtime.is_starting %}bg-amber-500{% else %}bg-rose-500{% endif %}"></span>
+        <p class="text-2xl font-black {% if runtime.is_running %}text-emerald-700{% elif runtime.is_starting %}text-amber-700{% else %}text-rose-700{% endif %}">{{ runtime.label }}</p>
       </div>
       <p class="mt-3 text-xs text-slate-500">
         {% if runtime.last_heartbeat_at %}
@@ -158,4 +166,5 @@
     </aside>
   </section>
 </section>
+<div id="scheduler-force-stop-modal-root"></div>
 {% endblock %}
