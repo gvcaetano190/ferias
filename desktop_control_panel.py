@@ -11,6 +11,16 @@ from pystray import Icon, Menu, MenuItem
 from apps.scheduler.app_control import ApplicationControlService
 
 
+import os
+import sys
+
+def resource_path(relative_path: str) -> str:
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 class ControlPanelApp:
     BG = "#e9f2fb"
     CARD = "#ffffff"
@@ -26,6 +36,9 @@ class ControlPanelApp:
         self.service = ApplicationControlService()
         self.root = tk.Tk()
         self.root.title("Controle de Férias")
+        icon_path = resource_path(os.path.join("assets", "icon.ico"))
+        if os.path.exists(icon_path):
+            self.root.iconbitmap(icon_path)
         self.root.geometry("1100x600")
         self.root.minsize(1050, 550)
         self.root.configure(bg=self.BG)
