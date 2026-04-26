@@ -26,8 +26,8 @@ class ControlPanelApp:
         self.service = ApplicationControlService()
         self.root = tk.Tk()
         self.root.title("Controle de Férias")
-        self.root.geometry("950x600")
-        self.root.minsize(900, 550)
+        self.root.geometry("1100x600")
+        self.root.minsize(1050, 550)
         self.root.configure(bg=self.BG)
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.queue: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -58,8 +58,8 @@ class ControlPanelApp:
         style.configure("Eyebrow.TLabel", background=self.BG, foreground=self.PRIMARY, font=("Segoe UI", 10, "bold"))
         style.configure("Body.TLabel", background=self.BG, foreground=self.MUTED, font=("Segoe UI", 11))
         style.configure("CardTitle.TLabel", background=self.CARD, foreground=self.TEXT, font=("Segoe UI", 11, "bold"))
-        style.configure("CardValue.TLabel", background=self.CARD, foreground=self.TEXT, font=("Segoe UI", 15, "bold"))
-        style.configure("LogTitle.TLabel", background=self.CARD, foreground=self.TEXT, font=("Segoe UI", 12, "bold"))
+        style.configure("CardValue.TLabel", background=self.CARD, foreground=self.TEXT, font=("Segoe UI", 13, "bold"))
+        style.configure("LogTitle.TLabel", background=self.CARD, foreground=self.TEXT, font=("Segoe UI", 11, "bold"))
 
     def _build_ui(self) -> None:
         shell = ttk.Frame(self.root, style="Panel.TFrame", padding=24)

@@ -133,11 +133,13 @@ class ApplicationControlService:
         )
 
     def _kill_pid(self, pid: int) -> None:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         subprocess.run(
             ["taskkill", "/PID", str(pid), "/T", "/F"],
             capture_output=True,
             text=True,
             check=False,
+            creationflags=creationflags,
         )
 
     def _list_managed_processes(self) -> dict[str, list[ManagedProcess]]:
@@ -162,12 +164,14 @@ class ApplicationControlService:
             "Where-Object { $_.Name -match 'python' -and $_.CommandLine } | "
             "Select-Object ProcessId, Name, CommandLine | ConvertTo-Json -Compress"
         )
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         result = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
             cwd=str(self.project_root),
             capture_output=True,
             text=True,
             check=False,
+            creationflags=creationflags,
         )
         if result.returncode != 0:
             return []
