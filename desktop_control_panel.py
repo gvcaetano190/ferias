@@ -280,6 +280,9 @@ def main() -> None:
         import ctypes
         # Habilita suporte a monitores de alta resolução (DPI scaling) no Windows
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        # Força o Windows a reconhecer esse app como independente (arruma o ícone da barra de tarefas)
+        myappid = 'gabriel.caetano.controle_ferias.1.0'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
     except Exception:
         pass
 
