@@ -6,3 +6,8 @@ data/*.sqlite
 data/*.sqlite3
 downloads/
 staticfiles/
+
+# PyInstaller
+dist/
+build/
+*.spec
