@@ -23,11 +23,23 @@ def consultar_usuario_ad(usuario_ad: str) -> dict:
 
 
 def consultar_usuarios_ad(usuarios_ad: list[str]) -> list[dict]:
+    return _executar_em_lote("consultar_usuarios.ps1", usuarios_ad)
+
+
+def bloquear_usuarios_ad(usuarios_ad: list[str]) -> list[dict]:
+    return _executar_em_lote("bloquear_usuarios.ps1", usuarios_ad)
+
+
+def desbloquear_usuarios_ad(usuarios_ad: list[str]) -> list[dict]:
+    return _executar_em_lote("desbloquear_usuarios.ps1", usuarios_ad)
+
+
+def _executar_em_lote(script_name: str, usuarios_ad: list[str]) -> list[dict]:
     usuarios_limpos = [usuario.strip() for usuario in usuarios_ad if usuario and usuario.strip()]
     if not usuarios_limpos:
         return []
 
-    payload = _run_powershell_script_with_json("consultar_usuarios.ps1", usuarios_limpos)
+    payload = _run_powershell_script_with_json(script_name, usuarios_limpos)
     if isinstance(payload, dict):
         return [_normalize_payload(payload, payload.get("usuario_ad", ""))]
     return [_normalize_payload(item, item.get("usuario_ad", "")) for item in payload]

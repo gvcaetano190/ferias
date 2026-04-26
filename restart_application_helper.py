@@ -83,9 +83,7 @@ def main() -> int:
     time.sleep(2)
 
     start_hidden_batch(project_root / "start_server.bat", project_root)
-    if args.restart_scheduler == "1":
-        time.sleep(2)
-        start_hidden_batch(project_root / "start_scheduler.bat", project_root)
+
     return 0
 
 

@@ -5,7 +5,7 @@ from datetime import date
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from apps.block.models import BlockConfig, BlockProcessing
+from apps.block.models import BlockConfig, BlockProcessing, BlockVerificationRun, BlockVerificationItem
 from apps.people.models import Acesso, Colaborador, Ferias
 
 
@@ -280,6 +280,28 @@ class BlockRepository:
                 continue
             vistos.add(chave)
             referencias.append(chave)
-            if len(referencias) >= limit:
-                break
         return referencias
+
+    def criar_verificacao_operacional_run(self, **kwargs) -> BlockVerificationRun:
+        return BlockVerificationRun.objects.create(**kwargs)
+
+    def criar_verificacao_item(self, run: BlockVerificationRun, **kwargs) -> BlockVerificationItem:
+        return BlockVerificationItem.objects.create(run=run, **kwargs)
+
+    def buscar_verificacao_operacional_run(self, run_id: int | None = None) -> BlockVerificationRun | None:
+        qs = BlockVerificationRun.objects.prefetch_related("items")
+        if run_id:
+            return qs.filter(pk=run_id).first()
+        return qs.first()
+
+    def buscar_verificacao_operacional_run_pronta_hoje(self, run_id: int | None = None) -> BlockVerificationRun | None:
+        today = timezone.localdate()
+        qs = BlockVerificationRun.objects.prefetch_related("items").filter(
+            status=BlockVerificationRun.STATUS_SUCCESS,
+            finished_at__isnull=False,
+            started_at__date=today,
+        )
+        if run_id is not None:
+            return qs.filter(pk=run_id).first()
+        return qs.first()
+

@@ -6,8 +6,6 @@ import subprocess
 from pathlib import Path
 
 from apps.core.models import OperationalSettings
-from apps.scheduler.models import SchedulerRuntime, SchedulerSettings
-
 
 class ApplicationControlService:
     def restart_web_application(self) -> tuple[bool, str]:
@@ -20,10 +18,8 @@ class ApplicationControlService:
             return False, "Helper de reinício não encontrado."
 
         current_pid = os.getpid()
-        scheduler_runtime = SchedulerRuntime.objects.filter(singleton_key="default").first()
-        scheduler_pid = scheduler_runtime.process_id if scheduler_runtime and scheduler_runtime.process_id else 0
-        settings = OperationalSettings.get_solo()
-        restart_scheduler = bool(scheduler_pid and not settings.auto_start_scheduler_with_server)
+        scheduler_pid = 0
+        restart_scheduler = False
 
         creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)

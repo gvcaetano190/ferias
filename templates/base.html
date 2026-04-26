@@ -57,10 +57,7 @@
               href="{% url 'block:index' %}"
               class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'block' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
             >Block</a>
-            <a
-              href="{% url 'scheduler:index' %}"
-              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'scheduler' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
-            >Scheduler</a>
+
             <a
               href="/admin/"
               class="rounded-full px-4 py-2 font-semibold {% if '/admin/' in request.path %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"

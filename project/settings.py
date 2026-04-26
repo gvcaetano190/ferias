@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.sync.apps.SyncConfig",
     "apps.passwords.apps.PasswordsConfig",
     "apps.dashboard.apps.DashboardConfig",
+    "django_q",
 ]
 
 MIDDLEWARE = [
@@ -121,3 +122,18 @@ GOOGLE_SHEETS_URL = env(
     "GOOGLE_SHEETS_URL",
     "https://docs.google.com/spreadsheets/d/1oIgONGE3W7E1sFFNWun3bUY6Ys3JVSK1/edit",
 )
+
+Q_CLUSTER = {
+    "name": "controle_ferias",
+    "workers": 2,
+    "recycle": 500,
+    "timeout": 300,
+    "retry": 360,
+    "compress": True,
+    "save_limit": 250,
+    "queue_limit": 500,
+    "cpu_affinity": 1,
+    "label": "Django Q2",
+    "orm": "default",
+}
+

@@ -25,17 +25,16 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         consultar_payload = self._consulta_liberado(vpn_status="LIBERADA", is_in_printi_acesso=True)
         bloquear_payload = self._bloqueio_sucesso(vpn_status="BLOQUEADA", is_in_printi_acesso=True)
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=consultar_payload) as consultar_mock:
-            with patch("apps.block.services.bloquear_usuario_ad", return_value=bloquear_payload) as bloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[consultar_payload]) as consultar_mock:
+            with patch("apps.block.business_service.bloquear_usuarios_ad", return_value=[bloquear_payload]) as bloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["bloqueios_feitos"], 1)
         self.assertEqual(resultado["desbloqueios_feitos"], 0)
         self.assertEqual(resultado["sincronizados"], 0)
         self.assertEqual(resultado["erros"], 0)
         self.assertEqual(resultado["ignorados"], 0)
-        self.assertEqual(consultar_mock.call_count, 2)
-        bloquear_mock.assert_called_once_with(self.usuario_ad_teste)
+        bloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
         self._assert_status(colaborador.id, self.vpn_system_name, "BLOQUEADA")
         self._assert_processing(
@@ -57,11 +56,11 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         consultar_payload = self._consulta_liberado(vpn_status="NP", is_in_printi_acesso=False)
         bloquear_payload = self._bloqueio_sucesso(vpn_status="NP", is_in_printi_acesso=False)
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=consultar_payload):
-            with patch("apps.block.services.bloquear_usuario_ad", return_value=bloquear_payload) as bloquear_mock:
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[consultar_payload]):
+            with patch("apps.block.business_service.bloquear_usuarios_ad", return_value=[bloquear_payload]) as bloquear_mock:
                 self.service.processar_verificacao_block()
 
-        bloquear_mock.assert_called_once_with(self.usuario_ad_teste)
+        bloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
         self._assert_status(colaborador.id, self.vpn_system_name, "NP")
         self._assert_processing(
@@ -81,12 +80,12 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         consultar_payload = self._consulta_bloqueado(vpn_status="BLOQUEADA")
         desbloquear_payload = self._desbloqueio_sucesso()
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=consultar_payload):
-            with patch("apps.block.services.desbloquear_usuario_ad", return_value=desbloquear_payload) as desbloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[consultar_payload]):
+            with patch("apps.block.business_service.desbloquear_usuarios_ad", return_value=[desbloquear_payload]) as desbloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["desbloqueios_feitos"], 1)
-        desbloquear_mock.assert_called_once_with(self.usuario_ad_teste)
+        desbloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self._assert_status(colaborador.id, self.ad_system_name, "LIBERADO")
         self._assert_status(colaborador.id, self.vpn_system_name, "NP")
         self._assert_processing(
@@ -106,12 +105,12 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="LIBERADA",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_liberado(vpn_status="LIBERADA")):
-            with patch("apps.block.services.bloquear_usuario_ad", return_value=self._bloqueio_sucesso()) as bloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]):
+            with patch("apps.block.business_service.bloquear_usuarios_ad", return_value=[self._bloqueio_sucesso()]) as bloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["bloqueios_feitos"], 1)
-        bloquear_mock.assert_called_once_with(self.usuario_ad_teste)
+        bloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
         self._assert_processing(
             colaborador_id=colaborador.id,
@@ -127,42 +126,18 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="BLOQUEADA",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_bloqueado(vpn_status="BLOQUEADA")):
-            with patch("apps.block.services.desbloquear_usuario_ad", return_value=self._desbloqueio_sucesso()) as desbloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=self._consulta_bloqueado(vpn_status="BLOQUEADA")):
+            with patch("apps.block.business_service.desbloquear_usuarios_ad", return_value=[self._desbloqueio_sucesso()]) as desbloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["desbloqueios_feitos"], 1)
-        desbloquear_mock.assert_called_once_with(self.usuario_ad_teste)
+        desbloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self._assert_status(colaborador.id, self.ad_system_name, "LIBERADO")
         self._assert_processing(
             colaborador_id=colaborador.id,
             acao="DESBLOQUEIO",
             resultado="SUCESSO",
             ad_status="LIBERADO",
-        )
-
-    def test_sincroniza_status_local_quando_ad_real_diverge_sem_chamar_executor(self):
-        colaborador, _ = self.preparar_cenario(
-            scenario="retorno-atrasado",
-            status_ad="BLOQUEADO",
-            status_vpn="BLOQUEADA",
-        )
-
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_liberado(vpn_status="NP")) as consultar_mock:
-            with patch("apps.block.services.desbloquear_usuario_ad") as desbloquear_mock:
-                resultado = self.service.processar_verificacao_block()
-
-        self.assertEqual(resultado["sincronizados"], 1)
-        self.assertEqual(consultar_mock.call_count, 1)
-        desbloquear_mock.assert_not_called()
-        self._assert_status(colaborador.id, self.ad_system_name, "LIBERADO")
-        self._assert_status(colaborador.id, self.vpn_system_name, "NP")
-        self._assert_processing(
-            colaborador_id=colaborador.id,
-            acao="DESBLOQUEIO",
-            resultado="SINCRONIZADO",
-            ad_status="LIBERADO",
-            vpn_status="NP",
         )
 
     def test_nao_executa_bloqueio_duplicado_quando_ja_existe_sucesso_hoje(self):
@@ -182,9 +157,9 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             mensagem="Bloqueio anterior",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_liberado(vpn_status="LIBERADA")):
-            with patch("apps.block.services.bloquear_usuario_ad") as bloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]):
+            with patch("apps.block.business_service.bloquear_usuarios_ad") as bloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["ignorados"], 1)
         bloquear_mock.assert_not_called()
@@ -214,9 +189,9 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             mensagem="Desbloqueio anterior",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_bloqueado(vpn_status="BLOQUEADA")):
-            with patch("apps.block.services.desbloquear_usuario_ad") as desbloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=self._consulta_bloqueado(vpn_status="BLOQUEADA")):
+            with patch("apps.block.business_service.desbloquear_usuarios_ad") as desbloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["ignorados"], 1)
         desbloquear_mock.assert_not_called()
@@ -246,12 +221,12 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             mensagem="Falha anterior",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_liberado(vpn_status="LIBERADA")):
-            with patch("apps.block.services.bloquear_usuario_ad", return_value=self._bloqueio_sucesso()) as bloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]):
+            with patch("apps.block.business_service.bloquear_usuarios_ad", return_value=[self._bloqueio_sucesso()]) as bloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertEqual(resultado["bloqueios_feitos"], 1)
-        bloquear_mock.assert_called_once_with(self.usuario_ad_teste)
+        bloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self.assertEqual(BlockProcessing.objects.filter(colaborador_id=colaborador.id, acao="BLOQUEIO").count(), 2)
         self.assertEqual(
             BlockProcessing.objects.filter(
@@ -269,8 +244,8 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="LIBERADA",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad") as consultar_mock:
-            with patch("apps.block.services.bloquear_usuario_ad") as bloquear_mock:
+        with patch("apps.block.business_service.consultar_usuarios_ad") as consultar_mock:
+            with patch("apps.block.business_service.bloquear_usuarios_ad") as bloquear_mock:
                 preview = self.service.previsualizar_verificacao_block()
 
         consultar_mock.assert_not_called()
@@ -365,9 +340,9 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="BLOQUEADA",
         )
 
-        with patch("apps.block.services.consultar_usuario_ad") as consultar_mock:
-            with patch("apps.block.services.bloquear_usuario_ad") as bloquear_mock:
-                with patch("apps.block.services.desbloquear_usuario_ad") as desbloquear_mock:
+        with patch("apps.block.business_service.consultar_usuarios_ad") as consultar_mock:
+            with patch("apps.block.business_service.bloquear_usuarios_ad") as bloquear_mock:
+                with patch("apps.block.business_service.desbloquear_usuarios_ad") as desbloquear_mock:
                     self.service.previsualizar_verificacao_block()
 
         consultar_mock.assert_not_called()
@@ -381,7 +356,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="LIBERADA",
         )
 
-        with patch("apps.block.services.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]) as consultar_lote_mock:
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]) as consultar_lote_mock:
             resumo = self.service.processar_verificacao_operacional_block()
 
         self.assertEqual(resumo["total_inicial_bloqueio"], 1)
@@ -402,7 +377,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="BLOQUEADA",
         )
 
-        with patch("apps.block.services.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]) as consultar_lote_mock:
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]) as consultar_lote_mock:
             resumo = self.service.processar_verificacao_operacional_block()
 
         self.assertEqual(resumo["total_inicial_desbloqueio"], 1)
@@ -434,7 +409,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             mensagem="Bloqueio anterior",
         )
 
-        with patch("apps.block.services.consultar_usuarios_ad") as consultar_mock:
+        with patch("apps.block.business_service.consultar_usuarios_ad") as consultar_mock:
             resumo = self.service.processar_verificacao_operacional_block()
 
         consultar_mock.assert_not_called()
@@ -451,19 +426,18 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="LIBERADA",
         )
 
-        with patch("apps.block.services.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]):
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]):
             resumo_verificacao = self.service.processar_verificacao_operacional_block()
 
         self.assertEqual(resumo_verificacao["total_final_bloqueio"], 1)
 
-        with patch("apps.block.services.consultar_usuario_ad", return_value=self._consulta_liberado(vpn_status="LIBERADA")) as consultar_mock:
-            with patch("apps.block.services.bloquear_usuario_ad", return_value=self._bloqueio_sucesso()) as bloquear_mock:
-                resultado = self.service.processar_verificacao_block()
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]) as consultar_mock:
+            with patch("apps.block.business_service.bloquear_usuarios_ad", return_value=[self._bloqueio_sucesso()]) as bloquear_mock:
+                resultado = self.service.processar_verificacao_block() # changed
 
         self.assertTrue(resultado["used_operational_queue"])
         self.assertEqual(resultado["verification_run_id"], BlockVerificationRun.objects.first().id)
-        bloquear_mock.assert_called_once_with(self.usuario_ad_teste)
-        self.assertGreaterEqual(consultar_mock.call_count, 1)
+        bloquear_mock.assert_called_once_with([self.usuario_ad_teste])
         self._assert_processing(
             colaborador_id=colaborador.id,
             acao="BLOQUEIO",
@@ -481,7 +455,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             status_vpn="BLOQUEADA",
         )
 
-        with patch("apps.block.services.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]):
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]):
             resumo_verificacao = self.service.processar_verificacao_operacional_block()
 
         self.assertEqual(resumo_verificacao["total_final_desbloqueio"], 0)

@@ -23,19 +23,31 @@
           </span>
         </div>
       </div>
-      <div class="flex flex-wrap gap-3">
+      <div class="flex flex-col flex-wrap gap-3 sm:flex-row lg:max-w-xl lg:justify-end">
+        <form method="post" action="{% url 'sync:run' %}" class="w-full sm:w-auto">
+          {% csrf_token %}
+          <button class="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">
+            1. Sincronizar planilha
+          </button>
+        </form>
         <button
-          class="rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700"
+          class="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
           hx-get="{% url 'block:preview' %}"
           hx-target="#block-preview-modal-root"
           hx-swap="innerHTML"
         >
-          Pré-visualizar verificação
+          Pré-visualizar fila
         </button>
-        <form method="post" action="{% url 'block:executar' %}">
+        <form method="post" action="{% url 'block:executar_operacional' %}" class="w-full sm:w-auto">
           {% csrf_token %}
-          <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">
-            Executar verificação
+          <button class="w-full rounded-2xl bg-amber-500 px-5 py-3 font-semibold text-white shadow-soft transition hover:bg-amber-600">
+            2. Verificação operacional
+          </button>
+        </form>
+        <form method="post" action="{% url 'block:executar' %}" class="w-full sm:w-auto">
+          {% csrf_token %}
+          <button class="w-full rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white shadow-soft transition hover:bg-brand-600">
+            3. Executar block
           </button>
         </form>
       </div>
@@ -109,12 +121,12 @@
             <p class="mt-2">{{ ultima_verificacao.summary_message }}</p>
           </div>
           <button
-            class="rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700"
+            class="w-full rounded-2xl border-2 border-brand-500 bg-brand-50 px-6 py-4 font-bold text-brand-700 transition hover:bg-brand-500 hover:text-white lg:w-auto"
             hx-get="{% url 'block:verification_modal' %}"
             hx-target="#block-preview-modal-root"
             hx-swap="innerHTML"
           >
-            Ver lista completa
+            Ver fila pronta final
           </button>
         {% endif %}
       </div>
