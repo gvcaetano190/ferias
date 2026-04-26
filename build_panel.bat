@@ -15,6 +15,7 @@ if not exist assets\icon.ico (
     --windowed ^
     --icon "assets\icon.ico" ^
     --name "ControleFeriasPanel" ^
+    --add-data "assets\icon.ico;assets" ^
     desktop_control_panel.py
 
 echo.
