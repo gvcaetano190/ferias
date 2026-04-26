@@ -35,7 +35,15 @@ class ApplicationStatus:
 
 class ApplicationControlService:
     def __init__(self, project_root: Path | None = None) -> None:
-        self.project_root = project_root or Path(__file__).resolve().parents[2]
+        import sys
+        if getattr(sys, 'frozen', False):
+            exe_path = Path(sys.executable).resolve()
+            if exe_path.parent.name == "dist":
+                self.project_root = exe_path.parents[1]
+            else:
+                self.project_root = exe_path.parent
+        else:
+            self.project_root = project_root or Path(__file__).resolve().parents[2]
         self.python_exe = self._resolve_python()
         self.pythonw_exe = self._resolve_python(gui=True)
         self.host = os.environ.get("DJANGO_HOST", "127.0.0.1")
@@ -133,11 +141,13 @@ class ApplicationControlService:
         )
 
     def _kill_pid(self, pid: int) -> None:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         subprocess.run(
             ["taskkill", "/PID", str(pid), "/T", "/F"],
             capture_output=True,
             text=True,
             check=False,
+            creationflags=creationflags,
         )
 
     def _list_managed_processes(self) -> dict[str, list[ManagedProcess]]:
@@ -162,12 +172,14 @@ class ApplicationControlService:
             "Where-Object { $_.Name -match 'python' -and $_.CommandLine } | "
             "Select-Object ProcessId, Name, CommandLine | ConvertTo-Json -Compress"
         )
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         result = subprocess.run(
-            ["powershell", "-WindowStyle", "Hidden", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
             cwd=str(self.project_root),
             capture_output=True,
             text=True,
             check=False,
+            creationflags=creationflags,
         )
         if result.returncode != 0:
             return []
