@@ -68,12 +68,22 @@ class ApplicationControlService:
 
         actions = []
         status = self.status_snapshot()
+        
+        if not (self.project_root / "run_server.py").exists() or not (self.project_root / "manage.py").exists():
+            return False, f"ERRO: Arquivos do sistema não encontrados na pasta {self.project_root}."
+
+        if not status.web_running:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                in_use = s.connect_ex((self.host, self.port)) == 0
+            if in_use:
+                return False, f"ERRO: A porta {self.port} já está sendo usada por outro programa."
+            self._spawn_hidden(["run_server.py"])
+            actions.append("aplicação web")
+
         if not status.qcluster_running:
             self._spawn_hidden(["manage.py", "qcluster"])
             actions.append("worker Q2")
-        if not status.web_running:
-            self._spawn_hidden(["run_server.py"])
-            actions.append("aplicação web")
 
         if not actions:
             return True, "Sistema já estava rodando."
