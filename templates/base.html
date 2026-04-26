@@ -18,7 +18,12 @@
               700: "#0f3659",
               900: "#0b2238"
             },
-            sand: "#f6f1e8"
+            sand: "#f6f1e8",
+            signal: {
+              mint: "#d8f7ea",
+              amber: "#f6d59c",
+              rose: "#f6d8de"
+            }
           },
           boxShadow: {
             soft: "0 24px 60px rgba(15, 54, 89, 0.12)"
@@ -30,14 +35,16 @@
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 </head>
-<body class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,76,129,0.18),_transparent_38%),linear-gradient(180deg,_#f8fafc_0%,_#eef4f8_100%)] text-slate-800">
+<body class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,76,129,0.16),_transparent_34%),linear-gradient(180deg,_#f8fafc_0%,_#eef4f8_100%)] text-slate-800">
   <div class="mx-auto flex min-h-screen {% if request.resolver_match.namespace == 'accesses' %}max-w-[99vw] 2xl:max-w-[1920px]{% else %}max-w-7xl{% endif %} flex-col px-3 py-6 lg:px-4">
     <header class="mb-6 rounded-[28px] border border-white/70 bg-white/80 px-6 py-5 shadow-soft backdrop-blur">
       <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Django + HTMX</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Operação de férias</p>
           <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-900">{{ operational_settings.company_name|default:"Sistema de Controle de Férias" }}</h1>
-          <p class="mt-2 max-w-2xl text-sm text-slate-500">Migração inicial do Streamlit para uma base modular em Django, reaproveitando o banco atual.</p>
+          <p class="mt-2 max-w-3xl text-sm text-slate-500">
+            Sincronize a planilha, valide a fila no AD e execute bloqueios e desbloqueios com trilha operacional clara.
+          </p>
         </div>
         <div class="flex flex-wrap items-center gap-3 text-sm">
           {% if request.user.is_authenticated %}
@@ -58,10 +65,13 @@
               class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'block' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
             >Block</a>
 
-            <a
-              href="/admin/"
-              class="rounded-full px-4 py-2 font-semibold {% if '/admin/' in request.path %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
-            >Admin</a>
+            {% if request.user.is_staff %}
+              <a
+                href="/admin/"
+                class="rounded-full px-4 py-2 font-semibold {% if '/admin/' in request.path %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+              >Admin</a>
+            {% endif %}
+
             <form method="post" action="{% url 'logout' %}">
               {% csrf_token %}
               <button class="rounded-full border border-slate-200 px-4 py-2 font-semibold text-slate-700">Sair</button>

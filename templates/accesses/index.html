@@ -4,9 +4,54 @@
 
 {% block content %}
 <section class="space-y-6">
-  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+  <section class="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
+      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Leitura operacional</p>
+      <h2 class="mt-2 text-3xl font-black text-slate-900">Panorama dos acessos no periodo</h2>
+      <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+        Esta tela mostra pendencias gerais entre os sistemas monitorados. Nem toda pendencia daqui entra no
+        fluxo automatico do block: o block decide pela combinacao entre datas de ferias e status do
+        <span class="font-semibold text-slate-900">AD PRIN</span>.
+      </p>
+      <div class="mt-5 grid gap-3 md:grid-cols-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Pendencia geral</p>
+          <p class="mt-2 text-sm text-slate-600">Divergencia entre os sistemas monitorados.</p>
+        </div>
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700">Na fila do block</p>
+          <p class="mt-2 text-sm text-amber-900">AD precisa de bloqueio ou desbloqueio conforme a regra de ferias.</p>
+        </div>
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+          <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Fora do escopo</p>
+          <p class="mt-2 text-sm text-emerald-900">Pendencia existe, mas o block nao precisa agir no AD.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="rounded-[28px] border border-white/70 bg-gradient-to-br from-brand-900 to-brand-500 p-6 text-white shadow-soft">
+      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-100">Leitura rapida</p>
+      <h3 class="mt-2 text-2xl font-black">O que exige acao hoje</h3>
+      <div class="mt-5 space-y-4 text-sm text-white/85">
+        <div class="flex items-center justify-between rounded-2xl bg-white/10 px-4 py-3">
+          <span>Pendencias gerais</span>
+          <strong class="text-lg text-white">{{ resumo.pendencias }}</strong>
+        </div>
+        <div class="flex items-center justify-between rounded-2xl bg-white/10 px-4 py-3">
+          <span>Entrariam na fila do block</span>
+          <strong class="text-lg text-white">{{ resumo.fila_block }}</strong>
+        </div>
+        <div class="flex items-center justify-between rounded-2xl bg-white/10 px-4 py-3">
+          <span>Pendencias fora do block</span>
+          <strong class="text-lg text-white">{{ resumo.pendencias_fora_block }}</strong>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
-      <p class="text-sm text-slate-500">Pessoas no mês</p>
+      <p class="text-sm text-slate-500">Colaboradores monitorados</p>
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.colaboradores_monitorados }}</p>
     </article>
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
@@ -14,23 +59,30 @@
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.sistemas_monitorados }}</p>
     </article>
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
-      <p class="text-sm text-slate-500">Bloqueados</p>
+      <p class="text-sm text-slate-500">Bloqueados gerais</p>
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.bloqueados }}</p>
     </article>
     <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
-      <p class="text-sm text-slate-500">Pendências</p>
+      <p class="text-sm text-slate-500">Pendencias gerais</p>
       <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.pendencias }}</p>
+    </article>
+    <article class="rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-soft">
+      <p class="text-sm text-slate-500">Na fila do block</p>
+      <p class="mt-3 text-4xl font-black text-slate-900">{{ resumo.fila_block }}</p>
     </article>
   </section>
 
   <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 pb-10 shadow-soft backdrop-blur">
     <div class="mb-5">
       <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Filtros</p>
-      <h3 class="mt-2 text-2xl font-black text-slate-900">Referência operacional</h3>
+      <h3 class="mt-2 text-2xl font-black text-slate-900">Referencia operacional</h3>
+      <p class="mt-2 max-w-2xl text-sm text-slate-500">
+        Use os filtros para revisar o mes, procurar colaboradores e isolar quem realmente entra no fluxo do block.
+      </p>
     </div>
     <form method="get" class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
       <label class="block">
-        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Mês de referência</span>
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Mes de referencia</span>
         <select name="referencia" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
           {% for referencia in referencias %}
             <option value="{{ referencia.value }}" {% if filters.referencia == referencia.value %}selected{% endif %}>{{ referencia.label }}</option>
@@ -51,7 +103,7 @@
         </select>
       </label>
       <label class="block">
-        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Situação</span>
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Situacao geral</span>
         <select name="situacao" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
           <option value="">Todas</option>
           {% for value, label in situacoes %}
@@ -60,7 +112,7 @@
         </select>
       </label>
       <label class="block">
-        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Status</span>
+        <span class="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Status por sistema</span>
         <select name="status" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none ring-brand-100 transition focus:border-brand-500 focus:ring-4">
           <option value="">Todos</option>
           {% for status in statuses %}
@@ -70,16 +122,21 @@
       </label>
       <div class="flex items-end gap-3">
         <button class="rounded-2xl bg-brand-500 px-5 py-3 font-semibold text-white">Aplicar</button>
-        <a href="{% url 'accesses:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Resetar</a>
-        <a href="{% url 'accesses:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Limpar filtros</a>
+        <a href="{% url 'accesses:index' %}" class="rounded-2xl border border-slate-200 px-5 py-3 font-semibold text-slate-700">Limpar</a>
       </div>
     </form>
   </section>
 
   <section class="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-soft backdrop-blur">
-    <div>
-      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Tabela</p>
-      <h3 class="mt-2 text-2xl font-black text-slate-900">Acessos por colaborador</h3>
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Tabela</p>
+        <h3 class="mt-2 text-2xl font-black text-slate-900">Acessos por colaborador</h3>
+      </div>
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <strong class="text-slate-900">Escopo do block:</strong> considera datas de ferias + status do sistema
+        <span class="font-semibold text-slate-900">AD</span>.
+      </div>
     </div>
     <div class="mt-6 overflow-x-auto rounded-3xl border border-slate-200">
       <table class="w-full divide-y divide-slate-200 text-[13px]">
@@ -88,17 +145,18 @@
             <th class="px-3 py-3">Nome</th>
             <th class="px-3 py-3">Email</th>
             <th class="px-3 py-3">Gestor</th>
-            <th class="px-3 py-3">Saída</th>
+            <th class="px-3 py-3">Saida</th>
             <th class="px-3 py-3">Retorno</th>
             {% for system in system_headers %}
               <th class="px-3 py-3 whitespace-nowrap">{{ system.label }}</th>
             {% endfor %}
-            <th class="px-3 py-3">Situação</th>
+            <th class="px-3 py-3">Situacao geral</th>
+            <th class="px-3 py-3">Escopo block</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 bg-white">
           {% for row in rows %}
-            <tr class="hover:bg-slate-50/80">
+            <tr class="align-top hover:bg-slate-50/80">
               <td class="px-3 py-3 font-semibold text-slate-800">{{ row.colaborador }}</td>
               <td class="px-3 py-3">{{ row.email|default:"-" }}</td>
               <td class="px-3 py-3">{{ row.gestor|default:"-" }}</td>
@@ -116,10 +174,21 @@
                   {{ row.situacao_label }}
                 </span>
               </td>
+              <td class="px-3 py-3">
+                <div class="space-y-2">
+                  <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold
+                    {% if row.block_scope == 'BLOQUEAR' %}bg-amber-100 text-amber-800
+                    {% elif row.block_scope == 'DESBLOQUEAR' %}bg-sky-100 text-sky-800
+                    {% else %}bg-slate-100 text-slate-700{% endif %}">
+                    {{ row.block_scope }}
+                  </span>
+                  <p class="max-w-[240px] text-xs leading-5 text-slate-500">{{ row.block_scope_reason }}</p>
+                </div>
+              </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="20" class="px-3 py-8 text-center text-slate-500">Nenhum colaborador encontrado para a referência atual.</td>
+              <td colspan="24" class="px-3 py-8 text-center text-slate-500">Nenhum colaborador encontrado para a referencia atual.</td>
             </tr>
           {% endfor %}
         </tbody>

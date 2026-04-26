@@ -23,13 +23,14 @@
           </span>
         </div>
       </div>
-      <div class="flex flex-col flex-wrap gap-3 sm:flex-row lg:max-w-xl lg:justify-end">
-        <form method="post" action="{% url 'sync:run' %}" class="w-full sm:w-auto">
-          {% csrf_token %}
-          <button class="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">
-            1. Sincronizar planilha
-          </button>
-        </form>
+        <div class="flex flex-col flex-wrap gap-3 sm:flex-row lg:max-w-xl lg:justify-end">
+          <form method="post" action="{% url 'sync:run' %}" class="w-full sm:w-auto">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'block:index' %}">
+            <button class="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">
+              1. Sincronizar planilha
+            </button>
+          </form>
         <button
           class="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
           hx-get="{% url 'block:preview' %}"

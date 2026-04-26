@@ -1,6 +1,9 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$UsuariosJson
+    [Parameter(Mandatory = $false)]
+    [string]$UsuariosJson,
+
+    [Parameter(Mandatory = $false)]
+    [string]$UsuariosBase64
 )
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -27,8 +30,21 @@ function New-ErrorPayload {
     }
 }
 
+function Get-UsuariosPayload {
+    if (-not [string]::IsNullOrWhiteSpace($UsuariosBase64)) {
+        $json = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($UsuariosBase64))
+        return [string[]]($json | ConvertFrom-Json)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($UsuariosJson)) {
+        return [string[]]($UsuariosJson | ConvertFrom-Json)
+    }
+
+    throw "Nenhum payload de usuarios foi informado."
+}
+
 try {
-    $usuarios = @($UsuariosJson | ConvertFrom-Json)
+    $usuarios = Get-UsuariosPayload
     Import-Module ActiveDirectory
     $results = New-Object System.Collections.Generic.List[object]
 
@@ -42,7 +58,7 @@ try {
         try {
             $user = Get-ADUser -Identity $usuarioAd -Properties MemberOf, SamAccountName, Enabled
             if (-not $user) {
-                throw "Usuário não encontrado no AD"
+                throw "Usuario nao encontrado no AD"
             }
 
             $isInPrintiAcesso = $false
@@ -66,7 +82,7 @@ try {
                 ad_status = "BLOQUEADO"
                 vpn_status = $vpnStatus
                 already_in_desired_state = $alreadyBlocked
-                message = $(if ($alreadyBlocked) { "Usuário já estava bloqueado no AD" } else { "Usuário bloqueado com sucesso em lote" })
+                message = $(if ($alreadyBlocked) { "Usuario ja estava bloqueado no AD" } else { "Usuario bloqueado com sucesso em lote" })
             })
         }
         catch {

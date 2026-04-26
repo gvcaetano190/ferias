@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import platform
 import shutil
@@ -51,7 +52,7 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
     if not shell_name:
         return _error_result(
             usuario_ad,
-            "PowerShell não encontrado. Instale/use o PowerShell do Windows ou `pwsh`.",
+            "PowerShell nao encontrado. Instale/use o PowerShell do Windows ou `pwsh`.",
         )
 
     command = [
@@ -66,7 +67,6 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
     ]
 
     try:
-        # O script devolve JSON para o Python interpretar sem depender de parsing frágil.
         result = subprocess.run(
             command,
             capture_output=True,
@@ -77,7 +77,7 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
             check=False,
         )
     except FileNotFoundError:
-        return _error_result(usuario_ad, f"Executável PowerShell não encontrado: {shell_name}")
+        return _error_result(usuario_ad, f"Executavel PowerShell nao encontrado: {shell_name}")
     except subprocess.SubprocessError as exc:
         return _error_result(usuario_ad, f"Falha ao executar PowerShell: {exc}")
 
@@ -87,16 +87,16 @@ def _run_powershell_script(script_name: str, usuario_ad: str) -> dict:
     if result.returncode != 0 and not stdout:
         return _error_result(
             usuario_ad,
-            stderr or f"Script PowerShell retornou código {result.returncode}.",
+            stderr or f"Script PowerShell retornou codigo {result.returncode}.",
         )
 
     if not stdout:
-        return _error_result(usuario_ad, stderr or "Script não retornou saída JSON.")
+        return _error_result(usuario_ad, stderr or "Script nao retornou saida JSON.")
 
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
-        return _error_result(usuario_ad, f"Saída inválida do script: {stdout}")
+        return _error_result(usuario_ad, f"Saida invalida do script: {stdout}")
 
     if stderr and payload.get("success"):
         payload["message"] = f"{payload.get('message', '')} | stderr: {stderr}".strip(" |")
@@ -110,7 +110,11 @@ def _run_powershell_script_with_json(script_name: str, payload_obj: list[str]) -
     script_path = AD_DIR / script_name
     shell_name = _resolve_powershell()
     if not shell_name:
-        return _error_result("", "PowerShell não encontrado. Instale/use o PowerShell do Windows ou `pwsh`.")
+        return _error_result("", "PowerShell nao encontrado. Instale/use o PowerShell do Windows ou `pwsh`.")
+
+    payload_base64 = base64.b64encode(
+        json.dumps(payload_obj, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
 
     command = [
         shell_name,
@@ -119,8 +123,8 @@ def _run_powershell_script_with_json(script_name: str, payload_obj: list[str]) -
         "Bypass",
         "-File",
         str(script_path),
-        "-UsuariosJson",
-        json.dumps(payload_obj, ensure_ascii=False),
+        "-UsuariosBase64",
+        payload_base64,
     ]
 
     try:
@@ -134,7 +138,7 @@ def _run_powershell_script_with_json(script_name: str, payload_obj: list[str]) -
             check=False,
         )
     except FileNotFoundError:
-        return _error_result("", f"Executável PowerShell não encontrado: {shell_name}")
+        return _error_result("", f"Executavel PowerShell nao encontrado: {shell_name}")
     except subprocess.SubprocessError as exc:
         return _error_result("", f"Falha ao executar PowerShell: {exc}")
 
@@ -142,14 +146,14 @@ def _run_powershell_script_with_json(script_name: str, payload_obj: list[str]) -
     stderr = (result.stderr or "").strip()
 
     if result.returncode != 0 and not stdout:
-        return _error_result("", stderr or f"Script PowerShell retornou código {result.returncode}.")
+        return _error_result("", stderr or f"Script PowerShell retornou codigo {result.returncode}.")
     if not stdout:
-        return _error_result("", stderr or "Script não retornou saída JSON.")
+        return _error_result("", stderr or "Script nao retornou saida JSON.")
 
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
-        return _error_result("", f"Saída inválida do script: {stdout}")
+        return _error_result("", f"Saida invalida do script: {stdout}")
 
     if stderr:
         if isinstance(payload, list):
@@ -163,7 +167,6 @@ def _run_powershell_script_with_json(script_name: str, payload_obj: list[str]) -
 
 
 def _resolve_powershell() -> str | None:
-    # Em Windows, prioriza o PowerShell nativo para facilitar uso em máquinas padrão.
     if platform.system().lower() == "windows":
         for candidate in ("powershell", "pwsh"):
             if shutil.which(candidate):

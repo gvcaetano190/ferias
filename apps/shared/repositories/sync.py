@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django.utils import timezone
+
 from apps.people.models import SyncLog
 
 
@@ -29,4 +31,5 @@ class SyncLogRepository:
             mensagem=mensagem,
             arquivo_hash=arquivo_hash,
             detalhes=detalhes,
+            created_at=timezone.now(),
         )

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from django.utils import timezone
 
 from apps.block.models import BlockVerificationItem, BlockVerificationRun
+from apps.block.preview_service import BlockPreviewService
 from apps.block.repositories import BlockRepository
 from integrations.ad.executor import (
     bloquear_usuario_ad,
@@ -38,6 +39,7 @@ class BlockServiceResult:
 class BlockBusinessService:
     def __init__(self):
         self.repository = BlockRepository()
+        self.preview_service = BlockPreviewService()
 
     def processar_verificacao_block(self, *, require_operational_queue: bool = False) -> dict:
         config = self.repository.obter_configuracao_ativa_block()
@@ -603,20 +605,40 @@ class BlockBusinessService:
         return consultar_usuario_ad(usuario_ad.strip())
 
     def _build_verification_candidates(self) -> list[dict]:
-        rows: list[dict] = []
-        seen_block: set[int] = set()
-        for ferias in self.repository.buscar_para_bloqueio_hoje():
-            if ferias.colaborador_id in seen_block:
-                continue
-            seen_block.add(ferias.colaborador_id)
-            rows.append(self._build_verification_candidate(ferias, acao_inicial="BLOQUEAR"))
+        preview = self.preview_service.previsualizar_verificacao_block()
+        if not preview["rows"]:
+            return []
 
-        seen_unlock: set[int] = set()
-        for ferias in self.repository.buscar_para_desbloqueio_hoje():
-            if ferias.colaborador_id in seen_unlock:
+        ferias_bloqueio = {
+            ferias.colaborador_id: ferias
+            for ferias in self.repository.buscar_para_bloqueio_hoje()
+        }
+        ferias_desbloqueio = {
+            ferias.colaborador_id: ferias
+            for ferias in self.repository.buscar_para_desbloqueio_hoje()
+        }
+
+        rows: list[dict] = []
+        for row in preview["rows"]:
+            colaborador = self.repository.obter_colaborador_por_login_ou_email(
+                usuario_ad=row["usuario_ad"],
+                email=row["email"],
+            )
+            if not colaborador:
                 continue
-            seen_unlock.add(ferias.colaborador_id)
-            rows.append(self._build_verification_candidate(ferias, acao_inicial="DESBLOQUEAR"))
+
+            acao_prevista = row["acao_prevista"]
+            if acao_prevista == "IGNORAR":
+                acao_prevista = "BLOQUEAR" if row.get("acao_ordem") == 0 else "DESBLOQUEAR"
+
+            if acao_prevista == "BLOQUEAR":
+                ferias = ferias_bloqueio.get(colaborador.id)
+                if ferias:
+                    rows.append(self._build_verification_candidate(ferias, acao_inicial="BLOQUEAR"))
+            elif acao_prevista == "DESBLOQUEAR":
+                ferias = ferias_desbloqueio.get(colaborador.id)
+                if ferias:
+                    rows.append(self._build_verification_candidate(ferias, acao_inicial="DESBLOQUEAR"))
         return rows
 
     def _build_verification_candidate(self, ferias, *, acao_inicial: str) -> dict:

@@ -1,0 +1,22 @@
+{% extends "admin/base_site.html" %}
+
+{% block branding %}
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+    <div>
+      <h1 id="site-name">
+        <a href="{% url 'admin:index' %}">Administração do Django</a>
+      </h1>
+      <p style="margin:4px 0 0;color:#cfe1ef;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">
+        Configuração operacional e governança do sistema
+      </p>
+    </div>
+    {% if user.is_authenticated %}
+      <a
+        href="{% url 'dashboard:home' %}"
+        style="display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;border-radius:999px;background:#0f4c81;color:#fff;text-decoration:none;font-weight:600;white-space:nowrap;"
+      >
+        Voltar ao sistema
+      </a>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -83,6 +83,19 @@ class BlockRepository:
     def obter_colaborador(self, colaborador_id: int) -> Colaborador | None:
         return Colaborador.objects.filter(id=colaborador_id).first()
 
+    def obter_colaborador_por_login_ou_email(self, *, usuario_ad: str, email: str) -> Colaborador | None:
+        usuario_ad = (usuario_ad or "").strip()
+        email = (email or "").strip()
+        if usuario_ad and usuario_ad != "-":
+            colaborador = Colaborador.objects.filter(login_ad__iexact=usuario_ad).first()
+            if colaborador:
+                return colaborador
+        if email and email != "-":
+            colaborador = Colaborador.objects.filter(email__iexact=email).first()
+            if colaborador:
+                return colaborador
+        return None
+
     def ja_processado_hoje(self, colaborador_id: int, acao: str) -> bool:
         today = timezone.localdate()
         return BlockProcessing.objects.filter(

@@ -1,16 +1,17 @@
 <div class="flex flex-col gap-4">
-  <div class="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
     <div>
-      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Resumo</p>
+      <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-500">Resumo do periodo</p>
       <h3 class="mt-2 text-2xl font-black text-slate-900">
-        {% if selected_period %}Funcionários em {{ selected_period.label }}{% else %}Sem períodos disponíveis{% endif %}
+        {% if selected_period %}Quem pede atencao em {{ selected_period.label }}{% else %}Sem periodos disponiveis{% endif %}
       </h3>
+      <p class="mt-2 text-sm text-slate-500">A tabela abaixo ajuda a identificar quem esta em ferias, quem voltou e quem deve ser acompanhado no block.</p>
     </div>
-    <div class="flex flex-col gap-3 lg:min-w-[280px]">
+    <div class="flex flex-col gap-3 lg:min-w-[320px]">
       <p class="text-sm text-slate-500">Colaboradores ativos cadastrados: {{ active_people }}</p>
       <div class="grid gap-3 lg:grid-cols-2">
         <div>
-          <label class="text-sm font-semibold text-slate-600">Status da tabela</label>
+          <label class="text-sm font-semibold text-slate-600">Leitura da tabela</label>
           <select
             name="status"
             class="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3"
@@ -29,7 +30,7 @@
           </select>
         </div>
         <div>
-          <label class="text-sm font-semibold text-slate-600">Data de retorno</label>
+          <label class="text-sm font-semibold text-slate-600">Retorno especifico</label>
           <input
             type="date"
             name="return_date"
@@ -53,8 +54,8 @@
         <tr>
           <th class="px-4 py-3">Nome</th>
           <th class="px-4 py-3">Motivo</th>
-          <th class="px-4 py-3">Status</th>
-          <th class="px-4 py-3">Saída</th>
+          <th class="px-4 py-3">Leitura</th>
+          <th class="px-4 py-3">Saida</th>
           <th class="px-4 py-3">Retorno</th>
           <th class="px-4 py-3">Gestor</th>
           <th class="px-4 py-3">Departamento</th>

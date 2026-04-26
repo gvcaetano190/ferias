@@ -158,18 +158,42 @@ class BlockPreviewService:
             item for item in items
             if item.resultado_verificacao in {BlockVerificationItem.OUTCOME_SYNCED, BlockVerificationItem.OUTCOME_ERROR}
         ]
+        lista_diferenca = lista_removida + lista_sincronizada
+        final_bloquear = [item for item in lista_final if item.acao_final == "BLOQUEAR"]
+        final_desbloquear = [item for item in lista_final if item.acao_final == "DESBLOQUEAR"]
+        diferenca_sincronizados = [
+            item for item in lista_diferenca
+            if item.resultado_verificacao == BlockVerificationItem.OUTCOME_SYNCED
+        ]
+        diferenca_erros = [
+            item for item in lista_diferenca
+            if item.resultado_verificacao == BlockVerificationItem.OUTCOME_ERROR
+        ]
+        diferenca_removidos = [
+            item for item in lista_diferenca
+            if item.resultado_verificacao == BlockVerificationItem.OUTCOME_REMOVED
+        ]
         return {
             "run": run,
             "summary": {
                 "inicial_total": len(items),
                 "final_total": len(lista_final),
+                "final_bloquear": len(final_bloquear),
+                "final_desbloquear": len(final_desbloquear),
                 "removida_total": len(lista_removida),
                 "sincronizada_total": len(lista_sincronizada),
+                "diferenca_total": len(lista_diferenca),
+                "diferenca_sincronizados": len(diferenca_sincronizados),
+                "diferenca_erros": len(diferenca_erros),
+                "diferenca_removidos": len(diferenca_removidos),
             },
             "lista_inicial": items,
             "lista_final": lista_final,
+            "lista_final_bloquear": final_bloquear,
+            "lista_final_desbloquear": final_desbloquear,
             "lista_removida": lista_removida,
             "lista_sincronizada": lista_sincronizada,
+            "lista_diferenca": lista_diferenca,
             "queue_is_source_for_next_job": self.repository.buscar_verificacao_operacional_run_pronta_hoje(run_id=run.id) is not None,
         }
 

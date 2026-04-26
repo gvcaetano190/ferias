@@ -5,3 +5,5 @@ certifi>=2024.8.30
 waitress>=3.0.2
 whitenoise>=6.8.2
 django-q2>=1.7.0
+Pillow>=11.1.0
+pystray>=0.19.5

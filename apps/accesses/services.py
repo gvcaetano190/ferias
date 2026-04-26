@@ -11,6 +11,11 @@ from apps.accesses.repositories import AccessesRepository
 RETURNED_BLOCKED_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
 ACTIVE_DURING_VACATION_STATUSES = {"ATIVO", "LIBERADO"}
 PENDING_DURING_VACATION_STATUSES = {"NB"}
+BLOCKABLE_AD_STATUSES = {"", "LIBERADO", "NB", "NP"}
+UNLOCKABLE_AD_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
+BLOCK_SCOPE_OUT = "FORA"
+BLOCK_SCOPE_BLOCK = "BLOQUEAR"
+BLOCK_SCOPE_UNLOCK = "DESBLOQUEAR"
 SITUATION_LABELS = {
     "BLOQUEADO": "Bloqueado",
     "LIBERADO": "Liberado",
@@ -195,9 +200,14 @@ class AccessesService:
             "bloqueados": sum(1 for row in rows if row["situacao"] == "BLOQUEADO"),
             "retornados_bloqueados": sum(1 for row in rows if row["situacao"] == "BLOQUEADO" and row.get("retorno_vigente")),
             "pendencias": sum(1 for row in rows if row["situacao"] == "PENDENTE"),
+            "fila_block": sum(1 for row in rows if row["block_scope"] in {BLOCK_SCOPE_BLOCK, BLOCK_SCOPE_UNLOCK}),
+            "pendencias_fora_block": sum(
+                1 for row in rows if row["situacao"] == "PENDENTE" and row["block_scope"] == BLOCK_SCOPE_OUT
+            ),
         }
 
     def _build_table_rows(self, rows: list[dict], systems: list[str]) -> list[dict]:
+        today = timezone.localdate()
         grouped: dict[int, dict] = {}
         for row in rows:
             item = grouped.setdefault(
@@ -229,7 +239,24 @@ class AccessesService:
             item["system_cells"] = [item["systems"].get(system, "-") for system in systems]
             item["situacao"] = self._classify_collaborator(item["systems"], item["ferias_ativa"], item["retorno_vigente"])
             item["situacao_label"] = SITUATION_LABELS[item["situacao"]]
+            item["block_scope"], item["block_scope_reason"] = self._classify_block_scope(item, today=today)
         return result
+
+    def _classify_block_scope(self, item: dict, *, today: date) -> tuple[str, str]:
+        ad_status = (item["systems"].get("AD PRIN") or "").strip().upper()
+        data_saida = item.get("data_saida")
+        data_retorno = item.get("data_retorno")
+
+        if data_saida and data_retorno and data_saida <= today < data_retorno and ad_status in BLOCKABLE_AD_STATUSES:
+            return BLOCK_SCOPE_BLOCK, "Em férias com AD ainda liberado ou indefinido."
+
+        if data_retorno and data_retorno <= today and ad_status in UNLOCKABLE_AD_STATUSES:
+            return BLOCK_SCOPE_UNLOCK, "Já retornou e o AD ainda está bloqueado."
+
+        if item["situacao"] == "PENDENTE":
+            return BLOCK_SCOPE_OUT, "Pendência geral em outros sistemas; o block não precisa agir no AD."
+
+        return BLOCK_SCOPE_OUT, "AD já está coerente com a regra de férias."
 
     def _classify_collaborator(self, systems: dict[str, str], ferias_ativa: bool, retorno_vigente: bool) -> str:
         effective_statuses = []

@@ -1,6 +1,9 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$UsuariosJson
+    [Parameter(Mandatory = $false)]
+    [string]$UsuariosJson,
+
+    [Parameter(Mandatory = $false)]
+    [string]$UsuariosBase64
 )
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -27,8 +30,21 @@ function New-ErrorPayload {
     }
 }
 
+function Get-UsuariosPayload {
+    if (-not [string]::IsNullOrWhiteSpace($UsuariosBase64)) {
+        $json = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($UsuariosBase64))
+        return [string[]]($json | ConvertFrom-Json)
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($UsuariosJson)) {
+        return [string[]]($UsuariosJson | ConvertFrom-Json)
+    }
+
+    throw "Nenhum payload de usuarios foi informado."
+}
+
 try {
-    $usuarios = @($UsuariosJson | ConvertFrom-Json)
+    $usuarios = Get-UsuariosPayload
     Import-Module ActiveDirectory
     $results = New-Object System.Collections.Generic.List[object]
 
