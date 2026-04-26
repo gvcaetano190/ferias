@@ -263,6 +263,13 @@ class ControlPanelApp:
 
 
 def main() -> None:
+    try:
+        import ctypes
+        # Habilita suporte a monitores de alta resolução (DPI scaling) no Windows
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
     app = ControlPanelApp()
     app.run()
 
