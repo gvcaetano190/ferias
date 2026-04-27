@@ -35,8 +35,8 @@
         <div class="rounded-3xl bg-brand-500 p-6 text-white shadow-brand/20 shadow-lg">
             <p class="text-xs font-bold uppercase tracking-widest opacity-80">Insight de Planejamento</p>
             <p class="mt-4 text-lg font-medium">
-                {% if pico_data.labels %}
-                    A semana de **{{ pico_data.labels.0 }}** registra o início da tendência de saídas.
+                {% if pico_data.peak_label %}
+                    A semana de <strong>{{ pico_data.peak_label }}</strong> é o pico com <strong>{{ pico_data.peak_value }}</strong> saída{{ pico_data.peak_value|pluralize:"s" }}.
                 {% else %}
                     Sem registros para o período selecionado.
                 {% endif %}
@@ -60,24 +60,41 @@
         </div>
     </div>
 
+    <!-- Tooltip customizado para o gráfico de departamentos -->
+    <div id="deptTooltip" style="
+        position: fixed;
+        display: none;
+        background: rgba(15, 23, 42, 0.93);
+        color: #f8fafc;
+        border-radius: 14px;
+        padding: 12px 16px;
+        font-size: 12px;
+        line-height: 1.7;
+        max-width: 260px;
+        pointer-events: none;
+        z-index: 9999;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+        backdrop-filter: blur(8px);
+        transition: opacity 0.15s ease;
+    "></div>
+
     <script>
         (function() {
-            // Função para destruir gráficos antigos
             if (window.picoChartInstance) window.picoChartInstance.destroy();
             if (window.deptChartInstance) window.deptChartInstance.destroy();
 
-            const brandColor = '#0f4c81'; 
+            const brandColor = '#0f4c81';
             const labelsPico = {{ pico_data.labels|safe|default:"[]" }};
             const valuesPico = {{ pico_data.values|safe|default:"[]" }};
-            
-            const labelsDept = {{ dept_data.labels|safe|default:"[]" }};
-            const valuesDept = {{ dept_data.values|safe|default:"[]" }};
+
+            const labelsDept  = {{ dept_data.labels|safe|default:"[]" }};
+            const valuesDept  = {{ dept_data.values|safe|default:"[]" }};
+            const peopleDept  = {{ dept_data.people|safe|default:"[]" }};
 
             // 1. Gráfico de Pico
             const canvasPico = document.getElementById('picoChart');
             if (canvasPico && labelsPico.length > 0) {
-                const ctxPico = canvasPico.getContext('2d');
-                window.picoChartInstance = new Chart(ctxPico, {
+                window.picoChartInstance = new Chart(canvasPico.getContext('2d'), {
                     type: 'line',
                     data: {
                         labels: labelsPico,
@@ -104,20 +121,22 @@
                 });
             }
 
-            // 2. Gráfico de Departamentos
+            // 2. Gráfico de Departamentos com tooltip de lista de pessoas
             const canvasDept = document.getElementById('deptChart');
+            const tooltip    = document.getElementById('deptTooltip');
+
             if (canvasDept && labelsDept.length > 0) {
-                const ctxDept = canvasDept.getContext('2d');
-                window.deptChartInstance = new Chart(ctxDept, {
+                window.deptChartInstance = new Chart(canvasDept.getContext('2d'), {
                     type: 'doughnut',
                     data: {
                         labels: labelsDept,
                         datasets: [{
                             data: valuesDept,
                             backgroundColor: [
-                                '#0f4c81', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', 
-                                '#10b981', '#6366f1', '#f43f5e', '#84cc16', '#06b6d4',
-                                '#f97316', '#a855f7', '#14b8a6', '#ef4444'
+                                '#0f4c81','#3b82f6','#8b5cf6','#ec4899','#f59e0b',
+                                '#10b981','#6366f1','#f43f5e','#84cc16','#06b6d4',
+                                '#f97316','#a855f7','#14b8a6','#ef4444','#0ea5e9',
+                                '#d946ef','#22c55e','#eab308','#64748b','#f87171'
                             ],
                             borderWidth: 2,
                             borderColor: '#ffffff'
@@ -127,6 +146,7 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
+                            tooltip: { enabled: false },  // desliga o tooltip padrão
                             legend: {
                                 position: 'bottom',
                                 align: 'center',
@@ -135,11 +155,11 @@
                                     padding: 15,
                                     font: { size: 10, weight: '600' },
                                     generateLabels: (chart) => {
-                                        const data = chart.data;
-                                        if (data.labels.length && data.datasets.length) {
-                                            return data.labels.map((label, i) => ({
-                                                text: `${label} (${data.datasets[0].data[i]})`,
-                                                fillStyle: data.datasets[0].backgroundColor[i],
+                                        const d = chart.data;
+                                        if (d.labels.length && d.datasets.length) {
+                                            return d.labels.map((label, i) => ({
+                                                text: `${label} (${d.datasets[0].data[i]})`,
+                                                fillStyle: d.datasets[0].backgroundColor[i],
                                                 hidden: false,
                                                 index: i
                                             }));
@@ -149,8 +169,44 @@
                                 }
                             }
                         },
-                        cutout: '60%'
+                        cutout: '60%',
+                        onHover: (event, elements) => {
+                            if (elements.length > 0) {
+                                const idx   = elements[0].index;
+                                const dept  = labelsDept[idx];
+                                const count = valuesDept[idx];
+                                const names = peopleDept[idx] || [];
+
+                                const nameList = names
+                                    .map(n => `<span style="display:block;padding-left:8px">• ${n}</span>`)
+                                    .join('');
+
+                                tooltip.innerHTML = `
+                                    <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#93c5fd">${dept}</div>
+                                    <div style="color:#94a3b8;margin-bottom:6px;font-size:11px">${count} colaborador${count !== 1 ? 'es' : ''}</div>
+                                    ${nameList}
+                                `;
+                                tooltip.style.display = 'block';
+
+                                // Posiciona o tooltip perto do cursor
+                                const x = event.native.clientX;
+                                const y = event.native.clientY;
+                                const tw = 280;
+                                const vw = window.innerWidth;
+                                tooltip.style.left = (x + 16 + tw > vw ? x - tw - 16 : x + 16) + 'px';
+                                tooltip.style.top  = (y - 10) + 'px';
+                                canvasDept.style.cursor = 'pointer';
+                            } else {
+                                tooltip.style.display = 'none';
+                                canvasDept.style.cursor = 'default';
+                            }
+                        }
                     }
+                });
+
+                // Esconde o tooltip ao sair do canvas
+                canvasDept.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
                 });
             }
         })();

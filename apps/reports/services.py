@@ -51,14 +51,26 @@ class ReportService:
             .annotate(count=Count('id'))
             .order_by('week')
         )
+        result = list(data)
+        labels = [d['week'].strftime('%d/%m/%y') for d in result]
+        values = [d['count'] for d in result]
+
+        # Semana com o maior número de saídas
+        peak_index = values.index(max(values)) if values else 0
+        peak_label = labels[peak_index] if labels else None
+        peak_value = values[peak_index] if values else 0
+
         return {
-            "labels": [d['week'].strftime('%d/%m/%y') for d in data],
-            "values": [d['count'] for d in data]
+            "labels": labels,
+            "values": values,
+            "peak_label": peak_label,
+            "peak_value": peak_value,
         }
 
     def get_department_impact_data(self, month=None, year=None):
         """
-        Retorna a distribuição de férias por departamento no período.
+        Retorna a distribuição de férias por departamento no período,
+        incluindo a lista de nomes de cada colaborador.
         """
         query = Q()
         if month and year:
@@ -67,15 +79,24 @@ class ReportService:
             today = timezone.now().date()
             query &= Q(data_saida__lte=today, data_retorno__gte=today)
 
-        active_vacations = Ferias.objects.filter(query)
-        data = (
-            active_vacations.values('colaborador__departamento')
-            .annotate(count=Count('id'))
-            .order_by('-count')
-        )
+        active_vacations = Ferias.objects.filter(query).select_related('colaborador')
+
+        # Agrupa nomes por departamento
+        dept_people: dict = {}
+        for ferias in active_vacations:
+            dept = ferias.colaborador.departamento or "Não Definido"
+            nome = ferias.colaborador.nome or "Desconhecido"
+            if dept not in dept_people:
+                dept_people[dept] = []
+            dept_people[dept].append(nome)
+
+        # Ordena por quantidade (maior primeiro)
+        sorted_depts = sorted(dept_people.items(), key=lambda x: len(x[1]), reverse=True)
+
         return {
-            "labels": [d['colaborador__departamento'] or "Não Definido" for d in data],
-            "values": [d['count'] for d in data]
+            "labels": [d[0] for d in sorted_depts],
+            "values": [len(d[1]) for d in sorted_depts],
+            "people": [d[1] for d in sorted_depts],  # lista de listas de nomes
         }
 
     def get_available_periods(self):
