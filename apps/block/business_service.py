@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ from django.utils import timezone
 from apps.block.models import BlockVerificationItem, BlockVerificationRun
 from apps.block.preview_service import BlockPreviewService
 from apps.block.repositories import BlockRepository
+from apps.notifications.services import NotificationService
 from integrations.ad.executor import (
     bloquear_usuario_ad,
     bloquear_usuarios_ad,
@@ -16,6 +18,8 @@ from integrations.ad.executor import (
     desbloquear_usuario_ad,
     desbloquear_usuarios_ad,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,6 +44,7 @@ class BlockBusinessService:
     def __init__(self):
         self.repository = BlockRepository()
         self.preview_service = BlockPreviewService()
+        self.notification_service = NotificationService()
 
     def processar_verificacao_block(self, *, require_operational_queue: bool = False) -> dict:
         config = self.repository.obter_configuracao_ativa_block()
@@ -55,21 +60,34 @@ class BlockBusinessService:
             payload["message"] = (
                 "Verificacao block aguardando uma verificacao operacional concluida hoje para usar a fila final."
             )
+            self._notify_block_execution_status(payload)
             return payload
-        if verification_run:
-            result = self._processar_fila_verificacao_operacional(
-                verification_run,
-                result=result,
-                dry_run=dry_run,
-            )
-        else:
-            result = self.processar_bloqueios(result, dry_run=dry_run)
-            result = self.processar_desbloqueios(result, dry_run=dry_run)
-        payload = result.as_dict()
-        payload["dry_run"] = dry_run
-        payload["verification_run_id"] = verification_run.id if verification_run else None
-        payload["used_operational_queue"] = bool(verification_run)
-        return payload
+        try:
+            if verification_run:
+                result = self._processar_fila_verificacao_operacional(
+                    verification_run,
+                    result=result,
+                    dry_run=dry_run,
+                )
+            else:
+                result = self.processar_bloqueios(result, dry_run=dry_run)
+                result = self.processar_desbloqueios(result, dry_run=dry_run)
+            payload = result.as_dict()
+            payload["dry_run"] = dry_run
+            payload["verification_run_id"] = verification_run.id if verification_run else None
+            payload["used_operational_queue"] = bool(verification_run)
+            payload["message"] = self._build_block_execution_summary_message(payload)
+            self._notify_block_execution_status(payload)
+            return payload
+        except Exception as exc:
+            payload = result.as_dict()
+            payload["dry_run"] = dry_run
+            payload["verification_run_id"] = verification_run.id if verification_run else None
+            payload["used_operational_queue"] = bool(verification_run)
+            payload["message"] = str(exc)
+            payload["status"] = "error"
+            self._notify_block_execution_status(payload)
+            raise
 
     def processar_verificacao_operacional_block(self) -> dict:
         run = self.repository.criar_verificacao_operacional_run(status=BlockVerificationRun.STATUS_SUCCESS)
@@ -129,12 +147,17 @@ class BlockBusinessService:
                 ]
             )
             summary["summary_message"] = run.summary_message
+            self._notify_operational_check_status(summary)
             return summary
         except Exception as exc:
             run.status = BlockVerificationRun.STATUS_ERROR
             run.finished_at = timezone.now()
             run.summary_message = str(exc)
             run.save(update_fields=["status", "finished_at", "summary_message"])
+            error_summary = dict(summary)
+            error_summary["summary_message"] = str(exc)
+            error_summary["status"] = "error"
+            self._notify_operational_check_status(error_summary)
             raise
 
     def processar_bloqueios(self, result: BlockServiceResult, *, dry_run: bool = False) -> BlockServiceResult:
@@ -674,16 +697,17 @@ class BlockBusinessService:
                 vpn_status_real=vpn_status_banco,
                 ad_status_banco_depois=ad_status_banco,
                 vpn_status_banco_depois=vpn_status_banco,
-                motivo="Já processado hoje com sucesso.",
+                motivo="Ja processado hoje com sucesso.",
             )
             return candidate
 
         ad_real = ad_lookup.get(candidate["usuario_ad"].strip().lower()) or self._error_consulta_operacional(
             candidate["usuario_ad"],
-            "Usuário não retornado pela consulta em lote.",
+            "Usuario nao retornado pela consulta em lote.",
         )
+        vpn_status_real = self._vpn_status_from_group_membership(ad_real)
         candidate["ad_status_real"] = ad_real.get("ad_status", "ERRO")
-        candidate["vpn_status_real"] = ad_real.get("vpn_status", "NP")
+        candidate["vpn_status_real"] = vpn_status_real
 
         if not ad_real.get("success"):
             candidate.update(
@@ -697,30 +721,57 @@ class BlockBusinessService:
 
         ad_real_normalizado = self._normalizar_status_ad(ad_real.get("ad_status") or "")
         ad_banco_normalizado = self._normalizar_status_ad(ad_status_banco)
+        vpn_banco_normalizado = self._normalizar_status_vpn(vpn_status_banco)
+        vpn_real_normalizado = self._normalizar_status_vpn(vpn_status_real)
+        vpn_changed = vpn_banco_normalizado != vpn_real_normalizado
+
         if acao_inicial == "BLOQUEAR":
             if ad_real_normalizado == "BLOQUEADO":
                 self.repository.atualizar_status_block(
                     colaborador_id=colaborador_id,
                     ad_status=ad_real.get("ad_status", "BLOQUEADO"),
-                    vpn_status=ad_real.get("vpn_status", "NP"),
+                    vpn_status=vpn_status_real,
+                )
+                self._notificar_divergencia_operacional_sync(
+                    candidate=candidate,
+                    ad_real=ad_real,
+                    status_banco_antes=ad_status_banco,
+                    vpn_status_banco_antes=vpn_status_banco,
+                    vpn_status_real=vpn_status_real,
+                    vpn_changed=vpn_changed,
                 )
                 candidate.update(
                     acao_final="IGNORAR",
                     resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
                     ad_status_banco_depois=ad_real.get("ad_status", "BLOQUEADO"),
-                    vpn_status_banco_depois=ad_real.get("vpn_status", "NP"),
+                    vpn_status_banco_depois=vpn_status_real,
                     motivo=(
-                        f"Lista inicial pedia bloqueio, mas o AD já estava bloqueado. "
+                        f"Lista inicial pedia bloqueio, mas o AD ja estava bloqueado. "
                         f"Status local era {ad_banco_normalizado or 'VAZIO'} e foi sincronizado."
                     ),
                 )
                 return candidate
 
+            if vpn_changed:
+                self.repository.atualizar_status_block(
+                    colaborador_id=colaborador_id,
+                    ad_status=ad_status_banco,
+                    vpn_status=vpn_status_real,
+                )
+                self._notificar_divergencia_operacional_sync(
+                    candidate=candidate,
+                    ad_real=ad_real,
+                    status_banco_antes=ad_status_banco,
+                    vpn_status_banco_antes=vpn_status_banco,
+                    vpn_status_real=vpn_status_real,
+                    vpn_changed=True,
+                )
+
             candidate.update(
                 acao_final="BLOQUEAR",
                 resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
                 ad_status_banco_depois=ad_status_banco,
-                vpn_status_banco_depois=vpn_status_banco,
+                vpn_status_banco_depois=vpn_status_real if vpn_changed else vpn_status_banco,
                 motivo=f"Mantido na fila final. {candidate['motivo_inicial']}",
             )
             return candidate
@@ -729,28 +780,93 @@ class BlockBusinessService:
             self.repository.atualizar_status_block(
                 colaborador_id=colaborador_id,
                 ad_status=ad_real.get("ad_status", "LIBERADO"),
-                vpn_status=ad_real.get("vpn_status", "NP"),
+                vpn_status=vpn_status_real,
+            )
+            self._notificar_divergencia_operacional_sync(
+                candidate=candidate,
+                ad_real=ad_real,
+                status_banco_antes=ad_status_banco,
+                vpn_status_banco_antes=vpn_status_banco,
+                vpn_status_real=vpn_status_real,
+                vpn_changed=vpn_changed,
             )
             candidate.update(
                 acao_final="IGNORAR",
                 resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
                 ad_status_banco_depois=ad_real.get("ad_status", "LIBERADO"),
-                vpn_status_banco_depois=ad_real.get("vpn_status", "NP"),
+                vpn_status_banco_depois=vpn_status_real,
                 motivo=(
-                    f"Lista inicial pedia desbloqueio, mas o AD já estava liberado. "
+                    f"Lista inicial pedia desbloqueio, mas o AD ja estava liberado. "
                     f"Status local era {ad_banco_normalizado or 'VAZIO'} e foi sincronizado."
                 ),
             )
             return candidate
 
+        if vpn_changed:
+            self.repository.atualizar_status_block(
+                colaborador_id=colaborador_id,
+                ad_status=ad_status_banco,
+                vpn_status=vpn_status_real,
+            )
+            self._notificar_divergencia_operacional_sync(
+                candidate=candidate,
+                ad_real=ad_real,
+                status_banco_antes=ad_status_banco,
+                vpn_status_banco_antes=vpn_status_banco,
+                vpn_status_real=vpn_status_real,
+                vpn_changed=True,
+            )
+
         candidate.update(
             acao_final="DESBLOQUEAR",
             resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
             ad_status_banco_depois=ad_status_banco,
-            vpn_status_banco_depois=vpn_status_banco,
+            vpn_status_banco_depois=vpn_status_real if vpn_changed else vpn_status_banco,
             motivo=f"Mantido na fila final. {candidate['motivo_inicial']}",
         )
         return candidate
+
+    def _notificar_divergencia_operacional_sync(
+        self,
+        *,
+        candidate: dict,
+        ad_real: dict,
+        status_banco_antes: str,
+        vpn_status_banco_antes: str,
+        vpn_status_real: str,
+        vpn_changed: bool,
+    ) -> None:
+        try:
+            self.notification_service.notify_operational_divergence(
+                collaborator_id=candidate["colaborador_id"],
+                collaborator_name=candidate["colaborador_nome"],
+                usuario_ad=candidate.get("usuario_ad") or "",
+                email=candidate.get("email") or "",
+                system_name="AD PRIN",
+                initial_action=candidate["acao_inicial"],
+                sheet_status=status_banco_antes or "",
+                real_status=ad_real.get("ad_status", ""),
+                internal_status_after_sync=ad_real.get("ad_status", ""),
+                vpn_sheet_status=vpn_status_banco_antes or "",
+                vpn_real_status=vpn_status_real or "",
+                vpn_internal_status_after_sync=vpn_status_real or "",
+                vpn_changed=vpn_changed,
+                data_saida=candidate.get("data_saida"),
+                data_retorno=candidate.get("data_retorno"),
+                details={
+                    "motivo_inicial": candidate.get("motivo_inicial") or "",
+                    "vpn_status_real": vpn_status_real or "",
+                    "vpn_status_banco_antes": vpn_status_banco_antes or "",
+                    "is_in_printi_acesso": bool(ad_real.get("is_in_printi_acesso", False)),
+                    "status_banco_antes": status_banco_antes or "",
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao enviar notificacao de divergencia operacional para colaborador_id=%s usuario_ad=%s",
+                candidate.get("colaborador_id"),
+                candidate.get("usuario_ad"),
+            )
 
     def _consultar_estados_ad_operacionais(self, items: list[dict]) -> dict[str, dict]:
         usuarios = []
@@ -794,6 +910,17 @@ class BlockBusinessService:
             return "Saindo de férias hoje." if ferias.data_saida == today else "Em férias e ainda não bloqueado."
         return "Retornando de férias hoje." if ferias.data_retorno == today else "Já retornou e ainda está bloqueado."
 
+    def _vpn_status_from_group_membership(self, ad_result: dict) -> str:
+        return "LIBERADA" if ad_result.get("is_in_printi_acesso", False) else "NP"
+
+    def _normalizar_status_vpn(self, vpn_status: str) -> str:
+        value = (vpn_status or "").strip().upper()
+        if value in {"LIBERADA", "LIBERADO"}:
+            return "LIBERADA"
+        if value in {"NP", "NB", "", "-"}:
+            return "NP"
+        return value
+
     def _build_verification_summary_message(self, summary: dict) -> str:
         return (
             f"Lista inicial: bloquear={summary['total_inicial_bloqueio']}, "
@@ -803,6 +930,51 @@ class BlockBusinessService:
             f"Sincronizados={summary['total_sincronizados']} | "
             f"Ignorados={summary['total_ignorados']} | "
             f"Erros={summary['total_erros']}."
+        )
+
+    def _build_block_execution_summary_message(self, payload: dict) -> str:
+        return (
+            f"Bloqueios={payload.get('bloqueios_feitos', 0)} | "
+            f"Desbloqueios={payload.get('desbloqueios_feitos', 0)} | "
+            f"Sincronizados={payload.get('sincronizados', 0)} | "
+            f"Ignorados={payload.get('ignorados', 0)} | "
+            f"Erros={payload.get('erros', 0)}."
+        )
+
+    def _notify_operational_check_status(self, summary: dict) -> None:
+        self.notification_service.notify_task_status(
+            task_key="block_operational_check",
+            task_label="Check operacional do block",
+            status=summary.get("status", "success"),
+            summary=summary.get("summary_message", "Check operacional finalizado."),
+            details=[
+                f"Run ID: {summary.get('run_id', '-')}",
+                f"Fila inicial bloquear: {summary.get('total_inicial_bloqueio', 0)}",
+                f"Fila inicial desbloquear: {summary.get('total_inicial_desbloqueio', 0)}",
+                f"Fila final bloquear: {summary.get('total_final_bloqueio', 0)}",
+                f"Fila final desbloquear: {summary.get('total_final_desbloqueio', 0)}",
+                f"Sincronizados: {summary.get('total_sincronizados', 0)}",
+                f"Ignorados: {summary.get('total_ignorados', 0)}",
+                f"Erros: {summary.get('total_erros', 0)}",
+            ],
+        )
+
+    def _notify_block_execution_status(self, payload: dict) -> None:
+        self.notification_service.notify_task_status(
+            task_key="block_execution",
+            task_label="Execucao final de block/desblock",
+            status=payload.get("status", "success" if not payload.get("skipped") else "skipped"),
+            summary=payload.get("message", self._build_block_execution_summary_message(payload)),
+            details=[
+                f"Dry run: {'sim' if payload.get('dry_run') else 'nao'}",
+                f"Usou fila operacional: {'sim' if payload.get('used_operational_queue') else 'nao'}",
+                f"Verification run: {payload.get('verification_run_id', '-')}",
+                f"Bloqueios: {payload.get('bloqueios_feitos', 0)}",
+                f"Desbloqueios: {payload.get('desbloqueios_feitos', 0)}",
+                f"Sincronizados: {payload.get('sincronizados', 0)}",
+                f"Ignorados: {payload.get('ignorados', 0)}",
+                f"Erros: {payload.get('erros', 0)}",
+            ],
         )
 
     def _decidir_execucao_preflight(self, preflight: dict, *, acao: str) -> dict:

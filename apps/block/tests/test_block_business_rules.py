@@ -8,7 +8,13 @@ from django.test.utils import override_settings
 
 from apps.block.models import BlockProcessing, BlockVerificationItem, BlockVerificationRun
 from apps.block.services import BlockService
-from apps.people.models import Acesso
+from apps.notifications.models import (
+    NotificationDelivery,
+    NotificationDivergenceAudit,
+    NotificationProviderConfig,
+    NotificationTarget,
+)
+from apps.people.models import Acesso, Ferias
 from apps.sync.services import SpreadsheetSyncService
 
 from .helpers import BlockIntegrationDataMixin
@@ -18,6 +24,19 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
     def setUp(self):
         super().setUp()
         self.service = BlockService()
+        self.notification_target = NotificationTarget.objects.create(
+            name="Grupo Operacional",
+            target_type=NotificationTarget.TYPE_GROUP,
+            destination="120363020985287866@g.us",
+            enabled=True,
+        )
+        self.notification_provider = NotificationProviderConfig.objects.create(
+            name="Evolution Teste",
+            enabled=True,
+            endpoint_url="http://localhost:8081/message/sendText/teste",
+            api_key="token",
+            default_target=self.notification_target,
+        )
 
     def test_saida_hoje_bloqueia_e_bloqueia_vpn_quando_usuario_esta_no_grupo(self):
         colaborador, ferias = self.preparar_cenario(
@@ -381,7 +400,11 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         )
 
         with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]) as consultar_lote_mock:
-            resumo = self.service.processar_verificacao_operacional_block()
+            with patch("apps.notifications.providers.evolution.requests.post") as post_mock:
+                mock_response = post_mock.return_value
+                mock_response.status_code = 201
+                mock_response.json.return_value = {"key": "value"}
+                resumo = self.service.processar_verificacao_operacional_block()
 
         self.assertEqual(resumo["total_inicial_desbloqueio"], 1)
         self.assertEqual(resumo["total_final_desbloqueio"], 0)
@@ -392,8 +415,140 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         self.assertEqual(item.acao_inicial, "DESBLOQUEAR")
         self.assertEqual(item.acao_final, "IGNORAR")
         self.assertEqual(item.resultado_verificacao, BlockVerificationItem.OUTCOME_SYNCED)
-        self.assertIn("já estava liberado", item.motivo.lower())
+        self.assertIn("ja estava liberado", item.motivo.lower())
         self.assertEqual(BlockProcessing.objects.count(), 0)
+        self.assertEqual(NotificationDivergenceAudit.objects.count(), 1)
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.divergence.validated",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.task.status",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            1,
+        )
+        self.assertEqual(post_mock.call_count, 2)
+
+    def test_verificacao_operacional_nao_reenvia_notificacao_para_mesma_divergencia(self):
+        self.preparar_cenario(
+            scenario="retorno-atrasado",
+            status_ad="BLOQUEADO",
+            status_vpn="BLOQUEADA",
+        )
+
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]):
+            with patch("apps.notifications.providers.evolution.requests.post") as post_mock:
+                mock_response = post_mock.return_value
+                mock_response.status_code = 201
+                mock_response.json.return_value = {"key": "value"}
+                self.service.processar_verificacao_operacional_block()
+                self.service.processar_verificacao_operacional_block()
+
+        self.assertEqual(NotificationDivergenceAudit.objects.count(), 1)
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.divergence.validated",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.task.status",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            2,
+        )
+        self.assertEqual(post_mock.call_count, 3)
+
+    def test_verificacao_operacional_envia_notificacao_de_status_ao_final(self):
+        self.preparar_cenario(
+            scenario="retorno-atrasado",
+            status_ad="BLOQUEADO",
+            status_vpn="BLOQUEADA",
+        )
+
+        with patch.object(self.service.business_service.notification_service, "notify_task_status") as notify_mock:
+            with patch.object(self.service.business_service.notification_service, "notify_operational_divergence") as divergence_mock:
+                with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP")]):
+                    self.service.processar_verificacao_operacional_block()
+
+        notify_mock.assert_called_once()
+        divergence_mock.assert_called_once()
+        self.assertEqual(notify_mock.call_args.kwargs["task_key"], "block_operational_check")
+
+    def test_execucao_final_envia_notificacao_de_status_ao_final(self):
+        self.preparar_cenario(
+            scenario="saida-hoje",
+            status_ad="LIBERADO",
+            status_vpn="LIBERADA",
+        )
+
+        with patch.object(self.service.business_service.notification_service, "notify_task_status") as notify_mock:
+            with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA")]):
+                with patch("apps.block.business_service.bloquear_usuarios_ad", return_value=[self._bloqueio_sucesso()]):
+                    self.service.processar_verificacao_block()
+
+        notify_mock.assert_called_once()
+        self.assertEqual(notify_mock.call_args.kwargs["task_key"], "block_execution")
+
+    def test_verificacao_operacional_sincroniza_vpn_para_np_quando_usuario_nao_esta_no_grupo(self):
+        colaborador, _ = self.preparar_cenario(
+            scenario="retorno-atrasado",
+            status_ad="BLOQUEADO",
+            status_vpn="LIBERADA",
+        )
+
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="LIBERADA", is_in_printi_acesso=False)]):
+            with patch("apps.notifications.providers.evolution.requests.post") as post_mock:
+                mock_response = post_mock.return_value
+                mock_response.status_code = 201
+                mock_response.json.return_value = {"key": "value"}
+                resumo = self.service.processar_verificacao_operacional_block()
+
+        self.assertEqual(resumo["total_sincronizados"], 1)
+        self._assert_status(colaborador.id, self.vpn_system_name, "NP")
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.divergence.validated",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            1,
+        )
+        post_mock.assert_called()
+
+    def test_verificacao_operacional_sincroniza_vpn_para_liberada_quando_usuario_esta_no_grupo(self):
+        colaborador, _ = self.preparar_cenario(
+            scenario="saida-hoje",
+            status_ad="LIBERADO",
+            status_vpn="NP",
+        )
+
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_liberado(vpn_status="NP", is_in_printi_acesso=True)]):
+            with patch("apps.notifications.providers.evolution.requests.post") as post_mock:
+                mock_response = post_mock.return_value
+                mock_response.status_code = 201
+                mock_response.json.return_value = {"key": "value"}
+                resumo = self.service.processar_verificacao_operacional_block()
+
+        self.assertEqual(resumo["total_final_bloqueio"], 1)
+        self._assert_status(colaborador.id, self.vpn_system_name, "LIBERADA")
+        item = BlockVerificationItem.objects.get(colaborador_id=colaborador.id)
+        self.assertEqual(item.acao_final, "BLOQUEAR")
+        self.assertEqual(item.vpn_status_banco_depois, "LIBERADA")
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.divergence.validated",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            1,
+        )
+        post_mock.assert_called()
 
     def test_verificacao_operacional_registra_motivo_quando_ja_processado_hoje(self):
         colaborador, ferias = self.preparar_cenario(
@@ -530,6 +685,76 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
                 preview_final = self.service.previsualizar_verificacao_block()
                 self.assertEqual(preview_final["summary"]["total"], 0)
 
+    def test_sync_envia_notificacao_de_status_ao_final(self):
+        colaborador = self.criar_colaborador_teste()
+        datas = self.scenario_dates("saida-hoje")
+        records = [
+            {
+                "nome": colaborador.nome,
+                "email": colaborador.email,
+                "login_ad": colaborador.login_ad,
+                "unidade": "Operacoes",
+                "motivo": "Ferias",
+                "data_saida": datas.data_saida.strftime("%Y-%m-%d"),
+                "data_retorno": datas.data_retorno.strftime("%Y-%m-%d"),
+                "gestor": "Gestor Teste",
+                "aba_origem": "Abril 2026",
+                "mes": datas.data_retorno.month,
+                "ano": datas.data_retorno.year,
+                "acessos": {
+                    "AD PRIN": "NB",
+                    "VPN": "NP",
+                },
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with override_settings(
+                DOWNLOAD_DIR=self._tmp_path(temp_dir, "downloads"),
+                PENDING_SYNC_CSV=self._tmp_path(temp_dir, "pendencias_sync_ferias.csv"),
+            ):
+                service = SpreadsheetSyncService()
+                with patch.object(service.notification_service, "notify_task_status") as notify_mock:
+                    self._executar_sync_fake(service, records)
+
+        notify_mock.assert_called_once()
+        self.assertEqual(notify_mock.call_args.kwargs["task_key"], "spreadsheet_sync")
+
+    def test_reconcile_operational_sync_data_suporta_muitos_registros_sem_estourar_expressao(self):
+        colaborador = self.criar_colaborador_teste()
+        datas = self.scenario_dates("saida-hoje")
+        service = SpreadsheetSyncService()
+
+        ferias = self.criar_ferias(
+            colaborador,
+            data_saida=datas.data_saida,
+            data_retorno=datas.data_retorno,
+        )
+        seen_ferias_keys = {
+            (
+                colaborador.id,
+                datas.data_saida.isoformat(),
+                datas.data_retorno.isoformat(),
+                datas.data_retorno.month,
+                datas.data_retorno.year,
+            )
+        }
+
+        seen_access_keys = set()
+        for index in range(1105):
+            sistema = f"SISTEMA_{index}"
+            self.criar_acesso(colaborador, sistema=sistema, status="LIBERADO")
+            if index < 5:
+                seen_access_keys.add((colaborador.id, sistema))
+
+        service.reconcile_operational_sync_data(
+            seen_ferias_keys=seen_ferias_keys,
+            seen_access_keys=seen_access_keys,
+        )
+
+        self.assertTrue(Ferias.objects.filter(id=ferias.id).exists())
+        self.assertEqual(Acesso.objects.filter(colaborador_id=colaborador.id).count(), 5)
+
     def _assert_status(self, colaborador_id: int, sistema: str, esperado: str):
         acesso = Acesso.objects.get(colaborador_id=colaborador_id, sistema=sistema)
         self.assertEqual(acesso.status, esperado)
@@ -616,3 +841,5 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             "message": "Usuario desbloqueado com sucesso",
             "already_in_desired_state": False,
         }
+
+

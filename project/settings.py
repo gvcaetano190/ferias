@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.accesses.apps.AccessesConfig",
     "apps.core.apps.CoreConfig",
+    "apps.notifications.apps.NotificationsConfig",
     "apps.scheduler.apps.SchedulerConfig",
     "apps.block.apps.BlockConfig",
     "apps.people.apps.PeopleConfig",

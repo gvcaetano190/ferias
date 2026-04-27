@@ -1,0 +1,19 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div id="content-main">
+    <h1>Testar envio de notificacao</h1>
+    <p>Use este formulario para validar se o endpoint, a API key e o destino estao corretos.</p>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <fieldset class="module aligned">
+        {{ form.as_p }}
+      </fieldset>
+      <div class="submit-row">
+        <input type="submit" value="Enviar mensagem de teste" class="default">
+        <a href="{% url 'admin:notifications_notificationproviderconfig_change' original.pk %}" class="button cancel-link">Voltar</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+

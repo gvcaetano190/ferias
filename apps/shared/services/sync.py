@@ -11,10 +11,10 @@ import openpyxl
 import requests
 import certifi
 from django.conf import settings
-from django.db.models import Q
 
 from apps.core.models import OperationalSettings
 from apps.block.models import BlockProcessing
+from apps.notifications.services import NotificationService
 from apps.people.models import Acesso, Ferias
 from apps.shared.repositories.people import AcessoRepository, ColaboradorRepository, FeriasRepository
 from apps.shared.repositories.sync import SyncLogRepository
@@ -23,6 +23,7 @@ from apps.shared.services.google_sheets import build_export_url, extract_sheet_i
 
 class SpreadsheetSyncService:
     MAX_EXPECTED_VACATION_DAYS = 62
+    DELETE_BATCH_SIZE = 500
     OPERATIONAL_SYSTEMS = {"AD PRIN", "VPN"}
     WEAK_ACCESS_STATUSES = {"", "-", "NB", "NP"}
     AUTHORITATIVE_ACCESS_STATUSES = {"BLOQUEADO", "BLOQUEADA", "LIBERADO", "LIBERADA"}
@@ -32,105 +33,132 @@ class SpreadsheetSyncService:
         self.colaboradores = ColaboradorRepository()
         self.acessos = AcessoRepository()
         self.sync_logs = SyncLogRepository()
+        self.notification_service = NotificationService()
         settings.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
         settings.PENDING_SYNC_CSV.parent.mkdir(parents=True, exist_ok=True)
 
     def run(self, force: bool = False) -> dict[str, Any]:
         if not self.operational_settings.sync_enabled:
-            return {"status": "disabled", "message": "Sincronização desabilitada no admin."}
+            payload = {"status": "disabled", "message": "Sincronizacao desabilitada no admin."}
+            self._notify_sync_status(payload, force=force)
+            return payload
 
-        spreadsheet = self.download_spreadsheet(force=force)
-        file_hash = self.calculate_hash(spreadsheet)
-        if not force and file_hash == self.last_hash():
-            return {"status": "skipped", "message": "A planilha não mudou desde a última sincronização."}
+        try:
+            spreadsheet = self.download_spreadsheet(force=force)
+            file_hash = self.calculate_hash(spreadsheet)
+            if not force and file_hash == self.last_hash():
+                payload = {"status": "skipped", "message": "A planilha nao mudou desde a ultima sincronizacao."}
+                self._notify_sync_status(payload, force=force)
+                return payload
 
-        records, sheets = self.process_workbook(spreadsheet)
+            records, sheets = self.process_workbook(spreadsheet)
 
-        pending: list[dict[str, str]] = []
-        total_events = 0
-        total_accesses = 0
-        seen_ferias_keys: set[tuple[int, str, str, int, int]] = set()
-        seen_access_keys: set[tuple[int, str]] = set()
+            pending: list[dict[str, str]] = []
+            total_events = 0
+            total_accesses = 0
+            seen_ferias_keys: set[tuple[int, str, str, int, int]] = set()
+            seen_access_keys: set[tuple[int, str]] = set()
 
-        for record in records:
-            collaborator = self.resolve_collaborator(record)
-            if not collaborator:
-                pending.append(
-                    {
-                        "nome": record["nome"],
-                        "email": record["email"],
-                        "login_ad": record["login_ad"],
-                        "aba": record["aba_origem"],
-                        "data_saida": record["data_saida"],
-                        "data_retorno": record["data_retorno"],
-                    }
+            for record in records:
+                collaborator = self.resolve_collaborator(record)
+                if not collaborator:
+                    pending.append(
+                        {
+                            "nome": record["nome"],
+                            "email": record["email"],
+                            "login_ad": record["login_ad"],
+                            "aba": record["aba_origem"],
+                            "data_saida": record["data_saida"],
+                            "data_retorno": record["data_retorno"],
+                        }
+                    )
+                    continue
+
+                seen_ferias_keys.add(
+                    (
+                        collaborator.id,
+                        record["data_saida"],
+                        record["data_retorno"],
+                        record["mes"],
+                        record["ano"],
+                    )
                 )
-                continue
-
-            seen_ferias_keys.add(
-                (
-                    collaborator.id,
-                    record["data_saida"],
-                    record["data_retorno"],
-                    record["mes"],
-                    record["ano"],
-                )
-            )
-            Ferias.objects.update_or_create(
-                colaborador_id=collaborator.id,
-                data_saida=record["data_saida"],
-                data_retorno=record["data_retorno"],
-                mes_ref=record["mes"],
-                ano_ref=record["ano"],
-                defaults={},
-            )
-            total_events += 1
-
-            for system_name, status in record["acessos"].items():
-                seen_access_keys.add((collaborator.id, system_name))
-                self.acessos.upsert(
+                Ferias.objects.update_or_create(
                     colaborador_id=collaborator.id,
-                    sistema=system_name,
-                    status=self.resolve_access_status(
-                        collaborator_id=collaborator.id,
-                        system_name=system_name,
-                        imported_status=status,
-                    ),
+                    data_saida=record["data_saida"],
+                    data_retorno=record["data_retorno"],
+                    mes_ref=record["mes"],
+                    ano_ref=record["ano"],
+                    defaults={},
                 )
-                total_accesses += 1
+                total_events += 1
 
-        self.reconcile_operational_sync_data(
-            seen_ferias_keys=seen_ferias_keys,
-            seen_access_keys=seen_access_keys,
+                for system_name, status in record["acessos"].items():
+                    seen_access_keys.add((collaborator.id, system_name))
+                    self.acessos.upsert(
+                        colaborador_id=collaborator.id,
+                        sistema=system_name,
+                        status=self.resolve_access_status(
+                            collaborator_id=collaborator.id,
+                            system_name=system_name,
+                            imported_status=status,
+                        ),
+                    )
+                    total_accesses += 1
+
+            self.reconcile_operational_sync_data(
+                seen_ferias_keys=seen_ferias_keys,
+                seen_access_keys=seen_access_keys,
+            )
+
+            if pending:
+                self.write_pending_csv(pending)
+            elif settings.PENDING_SYNC_CSV.exists():
+                settings.PENDING_SYNC_CSV.unlink()
+
+            sync_status = "SUCCESS" if not pending else "PARTIAL"
+            self.sync_logs.create(
+                tipo_sync="django_planilha",
+                status=sync_status,
+                total_registros=total_events + total_accesses,
+                total_abas=len(sheets),
+                mensagem=(
+                    f"Sincronizacao via Django: ferias={total_events}, "
+                    f"acessos={total_accesses}, pendencias={len(pending)}"
+                ),
+                arquivo_hash=file_hash,
+                detalhes=f"arquivo={spreadsheet.name}; pendencias={len(pending)}",
+            )
+
+            payload = {
+                "status": "success",
+                "message": f"Sincronizados {total_events} eventos e {total_accesses} acessos.",
+                "records": total_events + total_accesses,
+                "sheets": len(sheets),
+                "pending": len(pending),
+                "file": str(spreadsheet),
+            }
+            self._notify_sync_status(payload, force=force)
+            return payload
+        except Exception as exc:
+            payload = {"status": "error", "message": str(exc)}
+            self._notify_sync_status(payload, force=force)
+            raise
+
+    def _notify_sync_status(self, payload: dict[str, Any], *, force: bool) -> None:
+        self.notification_service.notify_task_status(
+            task_key="spreadsheet_sync",
+            task_label="Sincronizacao da planilha",
+            status=payload.get("status", "unknown"),
+            summary=payload.get("message", "Rotina finalizada."),
+            details=[
+                f"Modo forcado: {'sim' if force else 'nao'}",
+                f"Registros: {payload.get('records', 0)}",
+                f"Abas: {payload.get('sheets', 0)}",
+                f"Pendencias: {payload.get('pending', 0)}",
+                f"Arquivo: {payload.get('file', '-')}",
+            ],
         )
-
-        if pending:
-            self.write_pending_csv(pending)
-        elif settings.PENDING_SYNC_CSV.exists():
-            settings.PENDING_SYNC_CSV.unlink()
-
-        sync_status = "SUCCESS" if not pending else "PARTIAL"
-        self.sync_logs.create(
-            tipo_sync="django_planilha",
-            status=sync_status,
-            total_registros=total_events + total_accesses,
-            total_abas=len(sheets),
-            mensagem=(
-                f"Sincronização via Django: férias={total_events}, "
-                f"acessos={total_accesses}, pendências={len(pending)}"
-            ),
-            arquivo_hash=file_hash,
-            detalhes=f"arquivo={spreadsheet.name}; pendencias={len(pending)}",
-        )
-
-        return {
-            "status": "success",
-            "message": f"Sincronizados {total_events} eventos e {total_accesses} acessos.",
-            "records": total_events + total_accesses,
-            "sheets": len(sheets),
-            "pending": len(pending),
-            "file": str(spreadsheet),
-        }
 
     def reconcile_operational_sync_data(
         self,
@@ -138,23 +166,34 @@ class SpreadsheetSyncService:
         seen_ferias_keys: set[tuple[int, str, str, int, int]],
         seen_access_keys: set[tuple[int, str]],
     ) -> None:
-        ferias_to_keep = self._build_composite_q(
-            seen_ferias_keys,
-            fields=("colaborador_id", "data_saida", "data_retorno", "mes_ref", "ano_ref"),
-        )
-        if ferias_to_keep is None:
-            Ferias.objects.all().delete()
-        else:
-            Ferias.objects.exclude(ferias_to_keep).delete()
+        stale_ferias_ids: list[int] = []
+        for ferias_id, colaborador_id, data_saida, data_retorno, mes_ref, ano_ref in Ferias.objects.values_list(
+            "id",
+            "colaborador_id",
+            "data_saida",
+            "data_retorno",
+            "mes_ref",
+            "ano_ref",
+        ):
+            current_key = (
+                colaborador_id,
+                self._normalize_key_part(data_saida),
+                self._normalize_key_part(data_retorno),
+                mes_ref,
+                ano_ref,
+            )
+            if current_key not in seen_ferias_keys:
+                stale_ferias_ids.append(ferias_id)
 
-        acessos_to_keep = self._build_composite_q(
-            seen_access_keys,
-            fields=("colaborador_id", "sistema"),
-        )
-        if acessos_to_keep is None:
-            Acesso.objects.all().delete()
-        else:
-            Acesso.objects.exclude(acessos_to_keep).delete()
+        self._delete_in_batches(Ferias, stale_ferias_ids)
+
+        stale_access_ids: list[int] = []
+        for acesso_id, colaborador_id, sistema in Acesso.objects.values_list("id", "colaborador_id", "sistema"):
+            current_key = (colaborador_id, sistema)
+            if current_key not in seen_access_keys:
+                stale_access_ids.append(acesso_id)
+
+        self._delete_in_batches(Acesso, stale_access_ids)
 
     def resolve_access_status(
         self,
@@ -204,14 +243,19 @@ class SpreadsheetSyncService:
         )
         return ((getattr(current_access, "status", "") or "").strip().upper())
 
-    def _build_composite_q(self, keys: set[tuple], *, fields: tuple[str, ...]) -> Q | None:
-        if not keys:
-            return None
+    def _delete_in_batches(self, model, stale_ids: list[int]) -> None:
+        if not stale_ids:
+            return
+        for index in range(0, len(stale_ids), self.DELETE_BATCH_SIZE):
+            batch = stale_ids[index : index + self.DELETE_BATCH_SIZE]
+            model.objects.filter(id__in=batch).delete()
 
-        query = Q()
-        for key in keys:
-            query |= Q(**dict(zip(fields, key)))
-        return query
+    def _normalize_key_part(self, value):
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return value.isoformat()
+        return value
 
     def resolve_collaborator(self, record: dict[str, Any]):
         from apps.people.models import Colaborador
