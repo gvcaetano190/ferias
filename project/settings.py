@@ -143,3 +143,8 @@ DASHBOARD_SCREENSHOT_BASE_URL = env(
     "DASHBOARD_SCREENSHOT_BASE_URL",
     "http://127.0.0.1:8000",
 )
+
+# ── Bot WhatsApp ──────────────────────────────────────────────────────────────
+# JID do grupo autorizado. Só mensagens desse grupo serão processadas.
+# Deixe vazio para aceitar de qualquer origem (não recomendado).
+BOT_ALLOWED_GROUP = env("BOT_ALLOWED_GROUP", "120363423378738083@g.us")

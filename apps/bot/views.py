@@ -89,6 +89,13 @@ def webhook(request):
     if not reply_to or not text:
         return JsonResponse({"status": "ignored", "reason": "no_text_or_sender"}, status=200)
 
+    # Só responde no grupo autorizado
+    from django.conf import settings
+    allowed_group = getattr(settings, "BOT_ALLOWED_GROUP", "")
+    if allowed_group and reply_to != allowed_group:
+        logger.debug(f"[Bot Webhook] Ignorando mensagem fora do grupo autorizado: {reply_to}")
+        return JsonResponse({"status": "ignored", "reason": "not_allowed_group"}, status=200)
+
     logger.info(f"[Bot Webhook] 📩 De={reply_to} | Texto={text!r}")
 
     # Processa o comando
