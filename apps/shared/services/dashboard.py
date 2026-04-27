@@ -42,6 +42,8 @@ class DashboardPeriod:
 
 class DashboardService:
     STATUS_ALL = "all"
+    STATUS_SAIDA_HOJE = "saida_hoje"
+    STATUS_PROXIMO_SAIR = "proximo_sair"
     STATUS_EM_FERIAS = "em_ferias"
     STATUS_RETORNOU = "retornou"
     STATUS_PROXIMO_RETORNO = "proximo_retorno"
@@ -74,6 +76,8 @@ class DashboardService:
     def available_statuses(self) -> list[dict[str, str]]:
         return [
             {"key": self.STATUS_ALL, "label": "Todos"},
+            {"key": self.STATUS_SAIDA_HOJE, "label": "Saídas hoje"},
+            {"key": self.STATUS_PROXIMO_SAIR, "label": "Próximo a sair"},
             {"key": self.STATUS_EM_FERIAS, "label": "Em férias"},
             {"key": self.STATUS_RETORNOU, "label": "Retornou"},
             {"key": self.STATUS_PROXIMO_RETORNO, "label": "Próximo a retornar"},
@@ -92,6 +96,10 @@ class DashboardService:
             return None
 
     def row_status(self, item, today):
+        if item.data_saida and item.data_saida == today:
+            return self.STATUS_SAIDA_HOJE, "Saída hoje"
+        if item.data_saida and today < item.data_saida <= today + timedelta(days=7):
+            return self.STATUS_PROXIMO_SAIR, "Próximo a sair"
         if item.data_retorno and today < item.data_retorno <= today + timedelta(days=7):
             return self.STATUS_PROXIMO_RETORNO, "Próximo a retornar"
         if item.data_retorno and item.data_retorno < today:
@@ -103,6 +111,10 @@ class DashboardService:
     def matches_status(self, item, selected_status: str, today) -> bool:
         if selected_status == self.STATUS_ALL:
             return True
+        if selected_status == self.STATUS_SAIDA_HOJE:
+            return bool(item.data_saida and item.data_saida == today)
+        if selected_status == self.STATUS_PROXIMO_SAIR:
+            return bool(item.data_saida and today < item.data_saida <= today + timedelta(days=7))
         if selected_status == self.STATUS_EM_FERIAS:
             return bool(item.data_saida and item.data_retorno and item.data_saida <= today <= item.data_retorno)
         if selected_status == self.STATUS_RETORNOU:
