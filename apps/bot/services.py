@@ -369,7 +369,7 @@ class BotService:
         """Consulta as tasks agendadas no Django-Q2 e mostra próximas execuções."""
         try:
             from django_q.models import Schedule
-            from django.utils import timezone
+            from datetime import datetime
 
             schedules = Schedule.objects.all().order_by("next_run")
 
@@ -377,13 +377,21 @@ class BotService:
                 self._reply_text(sender, "⚠️ Nenhuma task agendada encontrada.")
                 return
 
-            agora = timezone.localtime(timezone.now())
-            msg = f"⏰ *Agenda de Tasks — {agora.strftime('%d/%m/%Y %H:%M')}*\n"
+            agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            msg = f"⏰ *Agenda de Tasks — {agora}*\n"
 
             for s in schedules:
                 status_icon = "✅" if s.repeats != 0 else "⏸️"
-                next_run = timezone.localtime(s.next_run).strftime("%d/%m/%Y às %H:%M") if s.next_run else "—"
-                last_run = timezone.localtime(s.last_run).strftime("%d/%m %H:%M") if s.last_run else "nunca"
+
+                if s.next_run:
+                    next_run = s.next_run.strftime("%d/%m/%Y às %H:%M")
+                else:
+                    next_run = "—"
+
+                if s.last_run:
+                    last_run = s.last_run.strftime("%d/%m %H:%M")
+                else:
+                    last_run = "nunca"
 
                 msg += (
                     f"\n{status_icon} *{s.name}*\n"
@@ -396,3 +404,4 @@ class BotService:
         except Exception as exc:
             logger.exception(f"[Bot] Erro ao buscar agenda: {exc}")
             self._reply_text(sender, f"❌ Erro ao buscar agenda: {exc}")
+
