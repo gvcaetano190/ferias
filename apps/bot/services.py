@@ -383,25 +383,23 @@ class BotService:
             for s in schedules:
                 status_icon = "✅" if s.repeats != 0 else "⏸️"
 
-                if s.next_run:
-                    next_run = s.next_run.strftime("%d/%m/%Y às %H:%M")
-                else:
-                    next_run = "—"
+                try:
+                    next_run = s.next_run.strftime("%d/%m/%Y às %H:%M") if s.next_run else "—"
+                except Exception:
+                    next_run = str(s.next_run) if s.next_run else "—"
 
-                if s.last_run:
-                    last_run = s.last_run.strftime("%d/%m %H:%M")
-                else:
-                    last_run = "nunca"
+                tipo = str(s.schedule_type) if s.schedule_type else "—"
 
                 msg += (
                     f"\n{status_icon} *{s.name}*\n"
                     f"  📌 Próxima: {next_run}\n"
-                    f"  🕐 Última: {last_run}\n"
-                    f"  🔁 Tipo: {s.schedule_type}\n"
+                    f"  🔁 Tipo: {tipo}\n"
+                    f"  🔄 Repetições: {'∞ (infinito)' if s.repeats == -1 else s.repeats}\n"
                 )
 
             self._reply_text(sender, msg)
         except Exception as exc:
             logger.exception(f"[Bot] Erro ao buscar agenda: {exc}")
             self._reply_text(sender, f"❌ Erro ao buscar agenda: {exc}")
+
 
