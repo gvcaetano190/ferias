@@ -179,6 +179,10 @@ class DashboardService:
 
         metrics = {
             "saindo_hoje": base.filter(data_saida=today).count(),
+            "proximos_7_dias_saida": base.filter(
+                data_saida__gt=today,
+                data_saida__lte=today + timedelta(days=7),
+            ).count(),
             "voltando": base.filter(data_retorno__in=next_returns).count(),
             "em_ferias": base.filter(data_saida__lte=today, data_retorno__gte=today).count(),
             "proximos_7_dias": base.filter(
