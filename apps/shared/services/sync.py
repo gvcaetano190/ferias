@@ -25,8 +25,49 @@ class SpreadsheetSyncService:
     MAX_EXPECTED_VACATION_DAYS = 62
     DELETE_BATCH_SIZE = 500
     OPERATIONAL_SYSTEMS = {"AD PRIN", "VPN"}
-    WEAK_ACCESS_STATUSES = {"", "-", "NB", "NP"}
+    # Status "fraco" = incerto, sem informação → preserva o que o AD disse
+    # NB = campo vazio/não mapeado na planilha
+    UNCERTAIN_ACCESS_STATUSES = {"", "-", "NB"}
+
+    # NP = "Não Possui" → definitivo, a pessoa não tem essa ferramenta
+    # BLOQUEADO/LIBERADO → definitivo, sobrescreve sempre
     AUTHORITATIVE_ACCESS_STATUSES = {"BLOQUEADO", "BLOQUEADA", "LIBERADO", "LIBERADA"}
+
+    # Manter compatibilidade com código legado que usa WEAK_ACCESS_STATUSES
+    WEAK_ACCESS_STATUSES = {"", "-", "NB", "NP"}
+
+    def resolve_access_status(
+        self,
+        *,
+        collaborator_id: int,
+        system_name: str,
+        imported_status: str,
+    ) -> str:
+        imported_normalized = (imported_status or "").strip().upper()
+
+        # Sistemas não operacionais: aceita qualquer coisa da planilha
+        if system_name not in self.OPERATIONAL_SYSTEMS:
+            return imported_status
+
+        # NP = "Não Possui": definitivo, a pessoa não tem essa ferramenta.
+        # Sobrescreve sempre, sem preservar histórico do AD.
+        if imported_normalized == "NP":
+            return "NP"
+
+        # BLOQUEADO / LIBERADO: status explícito da planilha, aceita sempre.
+        if imported_normalized in self.AUTHORITATIVE_ACCESS_STATUSES:
+            return imported_status
+
+        # NB / vazio: status incerto → preserva o que o AD registrou anteriormente.
+        if imported_normalized in self.UNCERTAIN_ACCESS_STATUSES:
+            authoritative_status = self._latest_authoritative_status(
+                collaborator_id=collaborator_id,
+                system_name=system_name,
+            )
+            if authoritative_status in self.AUTHORITATIVE_ACCESS_STATUSES:
+                return authoritative_status
+
+        return imported_status
 
     def __init__(self):
         self.operational_settings = OperationalSettings.get_solo()
@@ -195,27 +236,6 @@ class SpreadsheetSyncService:
 
         self._delete_in_batches(Acesso, stale_access_ids)
 
-    def resolve_access_status(
-        self,
-        *,
-        collaborator_id: int,
-        system_name: str,
-        imported_status: str,
-    ) -> str:
-        imported_normalized = (imported_status or "").strip().upper()
-        if system_name not in self.OPERATIONAL_SYSTEMS:
-            return imported_status
-
-        authoritative_status = self._latest_authoritative_status(
-            collaborator_id=collaborator_id,
-            system_name=system_name,
-        )
-        if (
-            imported_normalized in self.WEAK_ACCESS_STATUSES
-            and authoritative_status in self.AUTHORITATIVE_ACCESS_STATUSES
-        ):
-            return authoritative_status
-        return imported_status
 
     def _latest_authoritative_status(self, *, collaborator_id: int, system_name: str) -> str:
         latest_processing = (

@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "apps.sync.apps.SyncConfig",
     "apps.passwords.apps.PasswordsConfig",
     "apps.dashboard.apps.DashboardConfig",
+    "apps.reports.apps.ReportsConfig",
     "django_q",
 ]
 

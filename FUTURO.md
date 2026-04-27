@@ -1,55 +1,37 @@
-# Visão Geral e Futuro do Sistema (Controle de Férias)
+# Roadmap: Orquestração de Conformidade e Alertas de Divergência
 
-Este documento centraliza tudo o que conquistamos nesta fase de modernização do sistema e serve como uma bússola de ideias para melhorias e novas funcionalidades.
+Este documento foca exclusivamente no próximo grande marco do sistema: garantir que a planilha externa reflita a realidade operacional do AD através de notificações automatizadas.
 
----
-
-## 🚀 1. Resumo da Obra (O que fizemos)
-
-Transformamos um script monolítico em uma arquitetura de software corporativa (Enterprise-grade).
-
-* **Migração para Django Q2:** Substituímos agendadores arcaicos por um robusto gerenciador de tarefas em background (Q2). A aplicação web não fica mais "travada" esperando o banco de dados.
-* **Limpeza Arquitetural (SOLID):** Desmembramos a God Class (`BlockService`) em Repositórios (banco de dados) e Regras de Negócio (`BlockBusinessService`).
-* **Segurança e Idempotência:** Implementamos o conceito de *Preflight* (Pente Fino). O sistema agora "olha antes de pular", verificando o estado real do Active Directory (AD) para evitar sobreposição de comandos e sujeira nos logs.
-* **Poder do "Batch" (Lote):** Reescrevemos a comunicação com o PowerShell. Consultas, bloqueios e desbloqueios agora enviam JSON com dezenas de usuários em uma única tacada, derrubando o tempo de execução de minutos para meros 2 a 3 segundos.
-* **UI Transparente:** Interface reformulada dividindo a responsabilidade administrativa em 3 etapas claras:
-  1. Sincronização.
-  2. Verificação Operacional.
-  3. Execução Controlada.
-* **Auditoria de Pedra:** Cada respiração do sistema gera um registro (SUCESSO, ERRO, IGNORADO) na tabela `BlockProcessing`, impossibilitando as famosas dúvidas de T.I: "Quem cortou esse acesso?".
+### 🧠 Princípios do Fluxo
+1.  **A "Verdade" é o AD**: Estabelece-se uma hierarquia clara. Se houver conflito entre a planilha e o Check Operacional (robô) no Active Directory, o sistema sempre confia no AD.
+2.  **Sistema Auto-Corretivo**: Se o AD indicar que o usuário já está desbloqueado (e a data de retorno confirma isso), o sistema atualiza o banco de dados interno automaticamente.
+3.  **Vigia Silencioso**: O Dashboard permanece limpo e focado em ação. As divergências são tratadas via notificações externas (WhatsApp).
+4.  **Ação Reversa**: O sistema força a correção da fonte (planilha) através de alertas diretos aos responsáveis.
 
 ---
 
-## 🛠 2. Oportunidades de Melhoria no Código Atual
+### 🛠️ Plano de Implementação (Passo a Passo)
 
-A base agora é sólida, mas um sistema de alta performance sempre tem espaço para otimização contínua.
+#### 1. Auditoria de Grupos de VPN (Printi_Acesso)
+*   **Ação**: Expandir o `Check Operacional` para verificar se o usuário está dentro do grupo de segurança `Printi_Acesso` no AD.
+*   **Lógica**: Se a planilha marcar `LIBERADO` mas o usuário não estiver no grupo no AD, o sistema altera o status interno para `NP` (Não Presente) ou `NB` automaticamente.
 
+#### 2. Integração com Microserviço de WhatsApp
+*   **Base Tecnológica**: Utilizar a lógica de envio já funcional do projeto legado: [Controle de Férias Legado](https://github.com/gvcaetano190/controle-ferias).
+*   **Template de Alerta**: 
+    > *"⚠️ **Divergência Detectada**: O usuário **[NOME]** consta com VPN na planilha, mas o acesso não existe no AD. O sistema já normalizou o status interno para garantir a segurança, favor ajustar a planilha conforme a realidade."*
 
-* **Limpeza Automática de Logs:** A tabela `BlockProcessing` e `BlockVerificationRun` vão crescer infinitamente. Podemos criar uma tarefa Q2 mensal que purgue (delete ou mova para arquivamento) logs mais velhos do que 6 meses para manter o SQLite rápido.
-* **Testes de Integração (E2E):** Já temos 21 excelentes testes de negócio. O próximo passo seria adotar uma ferramenta como o *Playwright* ou *Selenium* para criar um robô que "clica nos botões" na tela para validar que a UI não quebre quando o HTML for alterado.
-* **Mapeamento de Erros Finos no PS:** O PowerShell atualmente retorna apenas "Sucesso" ou "Erro". Poderíamos classificar melhor: *Timeout*, *Erro de Permissão*, *Credenciais Inválidas*, permitindo que o Python tome decisões automáticas baseadas no código do erro.
+#### 3. Gatilho de Notificação (Divergência)
+*   **Momento**: O disparo ocorre no serviço de sincronização (`apps/shared/services/sync.py`) quando a reconciliação detecta que o status da planilha é "fraco" ou incorreto comparado ao status validado pelo AD.
+*   **Frequência**: Um alerta por divergência detectada para evitar spam, mantendo a planilha sempre higienizada.
+
+#### 4. Manutenção do Front-End Clean
+*   Não adicionar colunas de erro no dashboard.
+*   Manter apenas o status efetivo na tela, movendo a complexidade da "briga" entre planilha vs AD para os bastidores e para o WhatsApp.
 
 ---
 
-## ✨ 3. Novas Funcionalidades (O que seria legal trazer)
-
-Agora que a casa está arrumada, podemos subir os andares do prédio!
-
-### Botão de Emergência: Rollback (Desfazer)
-* Se o RH enviou uma data errada na planilha e a pessoa foi bloqueada no meio do expediente, seria fantástico ter um botão vermelho "Desfazer" direto na tabela de auditoria que instantaneamente invertesse a ação (rodasse o desbloqueio ignorando as regras de calendário).
-
-### Notificações Proativas (E-mail / Teams / Slack)
-* O sistema poderia enviar uma mensagem automática ao gestor da área 1 dia antes: *"Amanhã os acessos de Joãozinho serão suspensos devido a férias"*.
-* Uma notificação direta no Teams do time de Infraestrutura com o Resumo Diário: *"Hoje o robô executou 15 bloqueios com sucesso e houveram 2 falhas."*
-
-### Dashboard Analítica (Gráficos)
-* Usar bibliotecas como *Chart.js* na página inicial para criar gráficos de calor corporativo: "Quantas pessoas da empresa estarão de férias na semana do Natal?".
-* Gráficos de barra de Saúde do Sistema: "Quantidade de erros x acertos na automação do AD por mês".
-
-### Expansão: Além do Active Directory
-* Já dominamos o Windows, mas os usuários também usam ferramentas de nuvem. No futuro, o mesmo clique de botão poderia bloquear contas no *Google Workspace*, revogar tokens na *AWS*, ou inativar licenças de softwares pagos (*Salesforce*, *Figma*, etc), economizando dinheiro real da empresa em licenças não utilizadas durante as férias.
-
-### Painel de Controle Desktop (Executável)
-* Substituir as telas pretas de terminal (`.bat` e `.sh`) por um pequeno programa com interface gráfica (um "Control Panel" estilo XAMPP).
-* Esse executável teria botões simples: **"Iniciar Sistema"**, **"Pausar Sistema"**, **"Desligar"**, que gerenciariam o servidor Django e o worker do Q2 de forma limpa em segundo plano.
-* Pode ser feito em Python puro usando *Tkinter/PyQt* ou empacotado como um aplicativo de bandeja (ícone perto do relógio do Windows). Isso torna a inicialização do sistema 100% amigável para qualquer analista rodar.
+### 🚀 Impacto Esperado
+*   **Governança Ativa**: O RH/Gestores são notificados em tempo real sobre erros de preenchimento.
+*   **Segurança**: Garantia de que nenhum acesso de VPN fique aberto por erro de digitação na planilha.
+*   **Integridade**: A planilha do Google Sheets deixará de ser um "cemitério de dados" e passará a ser um espelho fiel da infraestrutura.

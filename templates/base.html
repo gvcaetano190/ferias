@@ -64,6 +64,10 @@
               href="{% url 'block:index' %}"
               class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'block' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
             >Block</a>
+            <a
+              href="{% url 'reports:dashboard' %}"
+              class="rounded-full px-4 py-2 font-semibold {% if request.resolver_match.namespace == 'reports' %}bg-brand-900 text-white{% else %}border border-slate-200 text-slate-700{% endif %}"
+            >Relatórios</a>
 
             {% if request.user.is_staff %}
               <a
