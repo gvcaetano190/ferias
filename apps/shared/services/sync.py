@@ -11,8 +11,11 @@ import openpyxl
 import requests
 import certifi
 from django.conf import settings
+from django.db.models import Q
 
 from apps.core.models import OperationalSettings
+from apps.block.models import BlockProcessing
+from apps.people.models import Acesso, Ferias
 from apps.shared.repositories.people import AcessoRepository, ColaboradorRepository, FeriasRepository
 from apps.shared.repositories.sync import SyncLogRepository
 from apps.shared.services.google_sheets import build_export_url, extract_sheet_id
@@ -20,6 +23,9 @@ from apps.shared.services.google_sheets import build_export_url, extract_sheet_i
 
 class SpreadsheetSyncService:
     MAX_EXPECTED_VACATION_DAYS = 62
+    OPERATIONAL_SYSTEMS = {"AD PRIN", "VPN"}
+    WEAK_ACCESS_STATUSES = {"", "-", "NB", "NP"}
+    AUTHORITATIVE_ACCESS_STATUSES = {"BLOQUEADO", "BLOQUEADA", "LIBERADO", "LIBERADA"}
 
     def __init__(self):
         self.operational_settings = OperationalSettings.get_solo()
@@ -39,13 +45,12 @@ class SpreadsheetSyncService:
             return {"status": "skipped", "message": "A planilha não mudou desde a última sincronização."}
 
         records, sheets = self.process_workbook(spreadsheet)
-        self.reset_operational_sync_data()
 
         pending: list[dict[str, str]] = []
         total_events = 0
         total_accesses = 0
-
-        from apps.people.models import Colaborador, Ferias
+        seen_ferias_keys: set[tuple[int, str, str, int, int]] = set()
+        seen_access_keys: set[tuple[int, str]] = set()
 
         for record in records:
             collaborator = self.resolve_collaborator(record)
@@ -62,6 +67,15 @@ class SpreadsheetSyncService:
                 )
                 continue
 
+            seen_ferias_keys.add(
+                (
+                    collaborator.id,
+                    record["data_saida"],
+                    record["data_retorno"],
+                    record["mes"],
+                    record["ano"],
+                )
+            )
             Ferias.objects.update_or_create(
                 colaborador_id=collaborator.id,
                 data_saida=record["data_saida"],
@@ -73,15 +87,27 @@ class SpreadsheetSyncService:
             total_events += 1
 
             for system_name, status in record["acessos"].items():
+                seen_access_keys.add((collaborator.id, system_name))
                 self.acessos.upsert(
                     colaborador_id=collaborator.id,
                     sistema=system_name,
-                    status=status,
+                    status=self.resolve_access_status(
+                        collaborator_id=collaborator.id,
+                        system_name=system_name,
+                        imported_status=status,
+                    ),
                 )
                 total_accesses += 1
 
+        self.reconcile_operational_sync_data(
+            seen_ferias_keys=seen_ferias_keys,
+            seen_access_keys=seen_access_keys,
+        )
+
         if pending:
             self.write_pending_csv(pending)
+        elif settings.PENDING_SYNC_CSV.exists():
+            settings.PENDING_SYNC_CSV.unlink()
 
         sync_status = "SUCCESS" if not pending else "PARTIAL"
         self.sync_logs.create(
@@ -106,11 +132,86 @@ class SpreadsheetSyncService:
             "file": str(spreadsheet),
         }
 
-    def reset_operational_sync_data(self) -> None:
-        from apps.people.models import Acesso, Ferias
+    def reconcile_operational_sync_data(
+        self,
+        *,
+        seen_ferias_keys: set[tuple[int, str, str, int, int]],
+        seen_access_keys: set[tuple[int, str]],
+    ) -> None:
+        ferias_to_keep = self._build_composite_q(
+            seen_ferias_keys,
+            fields=("colaborador_id", "data_saida", "data_retorno", "mes_ref", "ano_ref"),
+        )
+        if ferias_to_keep is None:
+            Ferias.objects.all().delete()
+        else:
+            Ferias.objects.exclude(ferias_to_keep).delete()
 
-        Acesso.objects.all().delete()
-        Ferias.objects.all().delete()
+        acessos_to_keep = self._build_composite_q(
+            seen_access_keys,
+            fields=("colaborador_id", "sistema"),
+        )
+        if acessos_to_keep is None:
+            Acesso.objects.all().delete()
+        else:
+            Acesso.objects.exclude(acessos_to_keep).delete()
+
+    def resolve_access_status(
+        self,
+        *,
+        collaborator_id: int,
+        system_name: str,
+        imported_status: str,
+    ) -> str:
+        imported_normalized = (imported_status or "").strip().upper()
+        if system_name not in self.OPERATIONAL_SYSTEMS:
+            return imported_status
+
+        authoritative_status = self._latest_authoritative_status(
+            collaborator_id=collaborator_id,
+            system_name=system_name,
+        )
+        if (
+            imported_normalized in self.WEAK_ACCESS_STATUSES
+            and authoritative_status in self.AUTHORITATIVE_ACCESS_STATUSES
+        ):
+            return authoritative_status
+        return imported_status
+
+    def _latest_authoritative_status(self, *, collaborator_id: int, system_name: str) -> str:
+        latest_processing = (
+            BlockProcessing.objects.filter(
+                colaborador_id=collaborator_id,
+                resultado__in={"SUCESSO", "SINCRONIZADO"},
+            )
+            .order_by("-executado_em", "-id")
+            .first()
+        )
+        if latest_processing:
+            if system_name == "AD PRIN":
+                status = (latest_processing.ad_status or "").strip().upper()
+                if status in self.AUTHORITATIVE_ACCESS_STATUSES:
+                    return status
+            if system_name == "VPN":
+                status = (latest_processing.vpn_status or "").strip().upper()
+                if status in self.AUTHORITATIVE_ACCESS_STATUSES:
+                    return status
+
+        current_access = (
+            Acesso.objects.filter(colaborador_id=collaborator_id, sistema=system_name)
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+        return ((getattr(current_access, "status", "") or "").strip().upper())
+
+    def _build_composite_q(self, keys: set[tuple], *, fields: tuple[str, ...]) -> Q | None:
+        if not keys:
+            return None
+
+        query = Q()
+        for key in keys:
+            query |= Q(**dict(zip(fields, key)))
+        return query
 
     def resolve_collaborator(self, record: dict[str, Any]):
         from apps.people.models import Colaborador

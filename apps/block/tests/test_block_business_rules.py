@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import tempfile
 from unittest.mock import patch
 
 from django.test import TransactionTestCase
+from django.test.utils import override_settings
 
 from apps.block.models import BlockProcessing, BlockVerificationItem, BlockVerificationRun
 from apps.block.services import BlockService
 from apps.people.models import Acesso
+from apps.sync.services import SpreadsheetSyncService
 
 from .helpers import BlockIntegrationDataMixin
 
@@ -253,7 +256,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         self.assertEqual(preview["summary"]["total"], 1)
         self.assertEqual(preview["summary"]["bloquear"], 1)
         self.assertEqual(preview["rows"][0]["acao_prevista"], "BLOQUEAR")
-        self.assertEqual(preview["rows"][0]["motivo"], "Saindo de férias hoje")
+        self.assertEqual(preview["rows"][0]["motivo"], "Saindo de ferias hoje")
 
     def test_preview_mostra_usuario_em_ferias_e_nao_bloqueado_como_bloquear(self):
         self.preparar_cenario(
@@ -266,7 +269,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
 
         self.assertEqual(preview["summary"]["bloquear"], 1)
         self.assertEqual(preview["rows"][0]["acao_prevista"], "BLOQUEAR")
-        self.assertEqual(preview["rows"][0]["motivo"], "Em férias e ainda não bloqueado")
+        self.assertEqual(preview["rows"][0]["motivo"], "Em ferias e ainda nao bloqueado")
 
     def test_preview_mostra_usuario_retornando_hoje_como_desbloquear(self):
         self.preparar_cenario(
@@ -279,7 +282,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
 
         self.assertEqual(preview["summary"]["desbloquear"], 1)
         self.assertEqual(preview["rows"][0]["acao_prevista"], "DESBLOQUEAR")
-        self.assertEqual(preview["rows"][0]["motivo"], "Retornando de férias hoje")
+        self.assertEqual(preview["rows"][0]["motivo"], "Retornando de ferias hoje")
 
     def test_preview_mostra_usuario_ja_retornado_e_bloqueado_como_desbloquear(self):
         self.preparar_cenario(
@@ -292,7 +295,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
 
         self.assertEqual(preview["summary"]["desbloquear"], 1)
         self.assertEqual(preview["rows"][0]["acao_prevista"], "DESBLOQUEAR")
-        self.assertEqual(preview["rows"][0]["motivo"], "Já retornou e ainda está bloqueado")
+        self.assertEqual(preview["rows"][0]["motivo"], "Ja retornou e ainda esta bloqueado")
 
     def test_preview_nao_altera_banco_nem_grava_processamento(self):
         colaborador, _ = self.preparar_cenario(
@@ -310,7 +313,7 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         self.assertEqual(Acesso.objects.get(colaborador_id=colaborador.id, sistema=self.vpn_system_name).status, vpn_antes)
         self.assertEqual(BlockProcessing.objects.count(), processamentos_antes)
 
-    def test_preview_respeita_duplicidade_e_mostra_ignorar(self):
+    def test_preview_remove_da_lista_quem_ja_foi_processado_hoje(self):
         colaborador, ferias = self.preparar_cenario(
             scenario="saida-hoje",
             status_ad="LIBERADO",
@@ -329,9 +332,9 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
 
         preview = self.service.previsualizar_verificacao_block()
 
-        self.assertEqual(preview["summary"]["ignorar"], 1)
-        self.assertEqual(preview["rows"][0]["acao_prevista"], "IGNORAR")
-        self.assertEqual(preview["rows"][0]["motivo"], "Já processado hoje com sucesso")
+        self.assertEqual(preview["summary"]["ignorar"], 0)
+        self.assertEqual(preview["summary"]["total"], 0)
+        self.assertEqual(preview["rows"], [])
 
     def test_preview_nao_chama_nenhum_executor_ad(self):
         self.preparar_cenario(
@@ -413,11 +416,8 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             resumo = self.service.processar_verificacao_operacional_block()
 
         consultar_mock.assert_not_called()
-        self.assertEqual(resumo["total_ignorados"], 1)
-        item = BlockVerificationItem.objects.get(colaborador_id=colaborador.id)
-        self.assertEqual(item.acao_final, "IGNORAR")
-        self.assertEqual(item.resultado_verificacao, BlockVerificationItem.OUTCOME_REMOVED)
-        self.assertIn("já processado hoje", item.motivo.lower())
+        self.assertEqual(resumo["total_ignorados"], 0)
+        self.assertFalse(BlockVerificationItem.objects.filter(colaborador_id=colaborador.id).exists())
 
     def test_execucao_final_usa_fila_final_da_verificacao_operacional(self):
         colaborador, ferias = self.preparar_cenario(
@@ -480,9 +480,71 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         self.assertFalse(resultado["used_operational_queue"])
         self.assertIn("aguardando", resultado["message"].lower())
 
+    def test_sync_repetida_nao_recria_prelista_quando_check_operacional_ja_sincronizou_status_real(self):
+        colaborador = self.criar_colaborador_teste()
+        datas = self.scenario_dates("saida-hoje")
+        records = [
+            {
+                "nome": colaborador.nome,
+                "email": colaborador.email,
+                "login_ad": colaborador.login_ad,
+                "unidade": "Operacoes",
+                "motivo": "Ferias",
+                "data_saida": datas.data_saida.strftime("%Y-%m-%d"),
+                "data_retorno": datas.data_retorno.strftime("%Y-%m-%d"),
+                "gestor": "Gestor Teste",
+                "aba_origem": "Abril 2026",
+                "mes": datas.data_retorno.month,
+                "ano": datas.data_retorno.year,
+                "acessos": {
+                    "AD PRIN": "NB",
+                    "VPN": "NP",
+                },
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with override_settings(
+                DOWNLOAD_DIR=self._tmp_path(temp_dir, "downloads"),
+                PENDING_SYNC_CSV=self._tmp_path(temp_dir, "pendencias_sync_ferias.csv"),
+            ):
+                service = SpreadsheetSyncService()
+
+                self._executar_sync_fake(service, records)
+                preview_inicial = self.service.previsualizar_verificacao_block()
+                self.assertEqual(preview_inicial["summary"]["bloquear"], 1)
+                self._assert_status(colaborador.id, self.ad_system_name, "NB")
+
+                with patch(
+                    "apps.block.business_service.consultar_usuarios_ad",
+                    return_value=[self._consulta_bloqueado(vpn_status="BLOQUEADA")],
+                ):
+                    resumo_verificacao = self.service.processar_verificacao_operacional_block()
+
+                self.assertEqual(resumo_verificacao["total_sincronizados"], 1)
+                self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
+
+                self._executar_sync_fake(service, records)
+                self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
+
+                preview_final = self.service.previsualizar_verificacao_block()
+                self.assertEqual(preview_final["summary"]["total"], 0)
+
     def _assert_status(self, colaborador_id: int, sistema: str, esperado: str):
         acesso = Acesso.objects.get(colaborador_id=colaborador_id, sistema=sistema)
         self.assertEqual(acesso.status, esperado)
+
+    def _executar_sync_fake(self, service: SpreadsheetSyncService, records: list[dict]):
+        with patch.object(service, "download_spreadsheet", return_value=self._tmp_path("." , "planilha_fake.xlsx")):
+            with patch.object(service, "calculate_hash", return_value="hash-simulada"):
+                with patch.object(service, "last_hash", return_value="hash-anterior"):
+                    with patch.object(service, "process_workbook", return_value=(records, [{"nome": "Abril 2026"}])):
+                        return service.run(force=True)
+
+    def _tmp_path(self, *parts: str):
+        from pathlib import Path
+
+        return Path(parts[0]).joinpath(*parts[1:])
 
     def _assert_processing(
         self,

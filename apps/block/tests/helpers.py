@@ -7,7 +7,7 @@ from django.db import connection
 from django.utils import timezone
 
 from apps.block.models import BlockConfig, BlockProcessing, BlockVerificationItem, BlockVerificationRun
-from apps.people.models import Acesso, Colaborador, Ferias
+from apps.people.models import Acesso, Colaborador, Ferias, SyncLog
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class BlockIntegrationDataMixin:
     email_teste = "teste-infra@teste.local"
     ad_system_name = "AD PRIN"
     vpn_system_name = "VPN"
-    _legacy_models = (Colaborador, Ferias, Acesso)
+    _legacy_models = (Colaborador, Ferias, Acesso, SyncLog)
     _created_tables: list[str] = []
 
     @classmethod
@@ -72,6 +72,7 @@ class BlockIntegrationDataMixin:
         BlockVerificationRun.objects.all().delete()
         BlockProcessing.objects.all().delete()
         BlockConfig.objects.all().delete()
+        SyncLog.objects.all().delete()
         Acesso.objects.all().delete()
         Ferias.objects.all().delete()
         Colaborador.objects.all().delete()

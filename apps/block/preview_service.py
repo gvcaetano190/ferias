@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
+
+from django.conf import settings
 from django.utils import timezone
 
 from apps.block.models import BlockVerificationItem
@@ -55,19 +58,12 @@ class BlockPreviewService:
         vpn_status_atual = self.repository.obter_status_vpn(collaborator.id)
         ja_processado = self.repository.ja_processado_hoje(collaborator.id, "BLOQUEIO")
         motivo = (
-            "Saindo de férias hoje"
+            "Saindo de ferias hoje"
             if ferias.data_saida == timezone.localdate()
-            else "Em férias e ainda não bloqueado"
+            else "Em ferias e ainda nao bloqueado"
         )
         if ja_processado:
-            return self._preview_row(
-                ferias,
-                acao_ordem=0,
-                ad_status_atual=ad_status_atual,
-                vpn_status_atual=vpn_status_atual,
-                acao_prevista="IGNORAR",
-                motivo="Já processado hoje com sucesso",
-            )
+            return None
         if not self.repository.pode_bloquear(collaborator.id):
             return None
         return self._preview_row(
@@ -85,19 +81,12 @@ class BlockPreviewService:
         vpn_status_atual = self.repository.obter_status_vpn(collaborator.id)
         ja_processado = self.repository.ja_processado_hoje(collaborator.id, "DESBLOQUEIO")
         motivo = (
-            "Retornando de férias hoje"
+            "Retornando de ferias hoje"
             if ferias.data_retorno == timezone.localdate()
-            else "Já retornou e ainda está bloqueado"
+            else "Ja retornou e ainda esta bloqueado"
         )
         if ja_processado:
-            return self._preview_row(
-                ferias,
-                acao_ordem=1,
-                ad_status_atual=ad_status_atual,
-                vpn_status_atual=vpn_status_atual,
-                acao_prevista="IGNORAR",
-                motivo="Já processado hoje com sucesso",
-            )
+            return None
         if not self.repository.pode_desbloquear(collaborator.id):
             return None
         return self._preview_row(
@@ -151,27 +140,26 @@ class BlockPreviewService:
         items = list(run.items.all())
         lista_final = [item for item in items if item.acao_final in {"BLOQUEAR", "DESBLOQUEAR"}]
         lista_removida = [
-            item for item in items
+            item
+            for item in items
             if item.acao_final == "IGNORAR" and item.resultado_verificacao == BlockVerificationItem.OUTCOME_REMOVED
         ]
         lista_sincronizada = [
-            item for item in items
+            item
+            for item in items
             if item.resultado_verificacao in {BlockVerificationItem.OUTCOME_SYNCED, BlockVerificationItem.OUTCOME_ERROR}
         ]
         lista_diferenca = lista_removida + lista_sincronizada
         final_bloquear = [item for item in lista_final if item.acao_final == "BLOQUEAR"]
         final_desbloquear = [item for item in lista_final if item.acao_final == "DESBLOQUEAR"]
         diferenca_sincronizados = [
-            item for item in lista_diferenca
-            if item.resultado_verificacao == BlockVerificationItem.OUTCOME_SYNCED
+            item for item in lista_diferenca if item.resultado_verificacao == BlockVerificationItem.OUTCOME_SYNCED
         ]
         diferenca_erros = [
-            item for item in lista_diferenca
-            if item.resultado_verificacao == BlockVerificationItem.OUTCOME_ERROR
+            item for item in lista_diferenca if item.resultado_verificacao == BlockVerificationItem.OUTCOME_ERROR
         ]
         diferenca_removidos = [
-            item for item in lista_diferenca
-            if item.resultado_verificacao == BlockVerificationItem.OUTCOME_REMOVED
+            item for item in lista_diferenca if item.resultado_verificacao == BlockVerificationItem.OUTCOME_REMOVED
         ]
         return {
             "run": run,
@@ -194,7 +182,10 @@ class BlockPreviewService:
             "lista_removida": lista_removida,
             "lista_sincronizada": lista_sincronizada,
             "lista_diferenca": lista_diferenca,
-            "queue_is_source_for_next_job": self.repository.buscar_verificacao_operacional_run_pronta_hoje(run_id=run.id) is not None,
+            "queue_is_source_for_next_job": self.repository.buscar_verificacao_operacional_run_pronta_hoje(
+                run_id=run.id
+            )
+            is not None,
         }
 
     def dashboard_data(self) -> dict:
@@ -217,8 +208,11 @@ class BlockPreviewService:
             "filtros": {
                 "reference": f"{today.year:04d}-{today.month:02d}",
             },
+            "sync_cache": self._sync_cache_info(),
             "referencias_retorno": self._referencias_retorno(),
-            "ultimas_verificacoes": list(self.repository.buscar_verificacao_operacional_run()._meta.model.objects.all()[:5]) if latest_verification_run else [],
+            "ultimas_verificacoes": list(self.repository.buscar_verificacao_operacional_run()._meta.model.objects.all()[:5])
+            if latest_verification_run
+            else [],
             "itens_ultima_verificacao": list(latest_verification_run.items.all()[:20]) if latest_verification_run else [],
             "ultima_verificacao": latest_verification_run,
         }
@@ -229,11 +223,9 @@ class BlockPreviewService:
         return_year, return_month = self._parse_reference(reference)
         config = self.repository.obter_configuracao_ativa_block()
         latest_verification_run = self.repository.buscar_verificacao_operacional_run()
-        
-        # fix the queryset to get last runs correctly without using private API if possible
-        # since I need the queryset:
+
         from apps.block.models import BlockVerificationRun
-        
+
         return {
             "resumo": self.repository.resumo_dashboard_block(
                 return_year=return_year,
@@ -250,6 +242,7 @@ class BlockPreviewService:
             "filtros": {
                 "reference": f"{return_year:04d}-{return_month:02d}",
             },
+            "sync_cache": self._sync_cache_info(),
             "referencias_retorno": self._referencias_retorno(),
             "ultimas_verificacoes": list(BlockVerificationRun.objects.all()[:5]),
             "itens_ultima_verificacao": list(latest_verification_run.items.all()[:20]) if latest_verification_run else [],
@@ -292,3 +285,45 @@ class BlockPreviewService:
             }
             for year, month in self.repository.listar_referencias_retorno(limit=12)
         ]
+
+    def _sync_cache_info(self) -> dict:
+        from apps.core.models import OperationalSettings
+
+        operational_settings = OperationalSettings.get_solo()
+        cache_window = int(operational_settings.cache_minutes or 0)
+        cached_files = sorted(
+            settings.DOWNLOAD_DIR.glob("planilha_*.xlsx"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        if not cached_files:
+            return {
+                "configured_minutes": cache_window,
+                "has_cache": False,
+                "status": "Sem cache local",
+                "detail": "A próxima sincronização precisará baixar a planilha novamente.",
+            }
+
+        latest = cached_files[0]
+        age_minutes = max(0, int((datetime.now().timestamp() - latest.stat().st_mtime) / 60))
+        remaining_minutes = max(0, cache_window - age_minutes)
+        is_valid = remaining_minutes > 0
+        return {
+            "configured_minutes": cache_window,
+            "has_cache": True,
+            "is_valid": is_valid,
+            "status": "Cache ativo" if is_valid else "Cache expirado",
+            "detail": (
+                f"Arquivo local baixado há {age_minutes} min. "
+                f"{remaining_minutes} min restantes para buscar uma nova planilha automaticamente."
+                if is_valid
+                else "O cache local expirou. A próxima sincronização buscará uma nova planilha."
+            ),
+            "file_name": latest.name,
+            "age_minutes": age_minutes,
+            "remaining_minutes": remaining_minutes,
+            "last_download_at": datetime.fromtimestamp(
+                latest.stat().st_mtime,
+                tz=timezone.get_current_timezone(),
+            ),
+        }
