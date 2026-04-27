@@ -9,6 +9,9 @@ Comandos suportados:
   - "quem esta de ferias" / "ausentes"  → quem está fora agora
   - "dashboard" / "relatorio"           → screenshot do mês atual
   - "dashboard de abril" / "dashboard 04" → screenshot de um mês específico
+  - "sincronizar" / "sync"              → sincroniza a planilha
+  - "verificacao" / "operacional"       → roda verificação operacional
+  - "lista final" / "fila"              → mostra a fila de bloqueio/desbloqueio
   - "ajuda" / "help"                    → lista de comandos
 """
 from __future__ import annotations
@@ -53,6 +56,14 @@ MENSAGEM_AJUDA = (
     "  → dashboard / relatorio\n\n"
     "📊 *Dashboard de um mês específico*\n"
     "  → dashboard de abril / relatorio 04\n\n"
+    "🔄 *Sincronizar planilha*\n"
+    "  → sincronizar / sync\n\n"
+    "🔍 *Verificação operacional*\n"
+    "  → verificacao / operacional\n\n"
+    "📋 *Lista final (bloqueio/desbloqueio)*\n"
+    "  → lista final / fila\n\n"
+    "⏰ *Próximas execuções agendadas*\n"
+    "  → agenda / tasks / proxima\n\n"
     "❓ *Esta ajuda*\n"
     "  → ajuda / help"
 )
@@ -118,6 +129,22 @@ class BotService:
     # ── Parser ──────────────────────────────────────────────────────────────
 
     def _parse_command(self, text: str) -> str:
+        # Sincronizar planilha
+        if any(w in text for w in ["sincronizar", "sincroniza", "sync", "atualizar planilha"]):
+            return "sincronizar"
+
+        # Verificação operacional
+        if any(w in text for w in ["verificacao", "verificação", "operacional", "preflight"]):
+            return "verificacao_operacional"
+
+        # Lista final de bloqueio/desbloqueio
+        if any(w in text for w in ["lista final", "fila", "bloqueio", "desbloqueio"]):
+            return "lista_final"
+
+        # Agenda de tasks
+        if any(w in text for w in ["agenda", "tasks", "proxima", "próxima", "agendamento"]):
+            return "agenda"
+
         # Dashboard / screenshot
         if any(w in text for w in ["dashboard", "relatorio", "relatório", "print", "foto"]):
             return "dashboard"
@@ -163,6 +190,18 @@ class BotService:
         elif command == "dashboard":
             month, year = _parse_month(original_text)
             self._reply_dashboard(sender, month=month, year=year)
+
+        elif command == "sincronizar":
+            self._reply_sincronizar(sender)
+
+        elif command == "verificacao_operacional":
+            self._reply_verificacao_operacional(sender)
+
+        elif command == "lista_final":
+            self._reply_lista_final(sender)
+
+        elif command == "agenda":
+            self._reply_agenda(sender)
 
         elif command == "ajuda":
             self._reply_text(sender, MENSAGEM_AJUDA)
@@ -236,3 +275,124 @@ class BotService:
         if not result.success:
             logger.error(f"[Bot] Falha ao enviar imagem: {result.message}")
             self._reply_text(sender, "❌ Erro ao enviar a imagem. Tente novamente.")
+
+    def _reply_sincronizar(self, sender: str) -> None:
+        """Executa a sincronização da planilha e retorna o resultado."""
+        self._reply_text(sender, "⏳ Sincronizando planilha... isso pode levar alguns segundos.")
+
+        try:
+            from apps.sync.tasks import run_spreadsheet_sync
+            result = run_spreadsheet_sync()
+
+            status = result.get("status", "desconhecido")
+            total = result.get("total_registros", result.get("total", "?"))
+            msg = (
+                f"✅ *Sincronização concluída!*\n\n"
+                f"📄 Status: {status}\n"
+                f"📊 Registros processados: {total}"
+            )
+
+            # Adiciona detalhes extras se existirem
+            for key in ["inseridos", "atualizados", "removidos", "created", "updated", "deleted"]:
+                if key in result and result[key]:
+                    label = key.capitalize()
+                    msg += f"\n  • {label}: {result[key]}"
+
+            self._reply_text(sender, msg)
+        except Exception as exc:
+            logger.exception(f"[Bot] Erro na sincronização: {exc}")
+            self._reply_text(sender, f"❌ Erro na sincronização: {exc}")
+
+    def _reply_verificacao_operacional(self, sender: str) -> None:
+        """Executa a verificação operacional e retorna o resultado."""
+        self._reply_text(sender, "⏳ Executando verificação operacional...")
+
+        try:
+            from apps.block.tasks import run_operational_verification
+            result = run_operational_verification()
+
+            msg = "✅ *Verificação operacional concluída!*\n\n"
+
+            if isinstance(result, dict):
+                for key, value in result.items():
+                    if key != "status":
+                        label = key.replace("_", " ").capitalize()
+                        msg += f"  • {label}: {value}\n"
+            else:
+                msg += f"Resultado: {result}"
+
+            self._reply_text(sender, msg)
+        except Exception as exc:
+            logger.exception(f"[Bot] Erro na verificação operacional: {exc}")
+            self._reply_text(sender, f"❌ Erro na verificação: {exc}")
+
+    def _reply_lista_final(self, sender: str) -> None:
+        """Consulta a lista final de bloqueio/desbloqueio e envia."""
+        try:
+            from apps.block.preview_service import BlockPreviewService
+            service = BlockPreviewService()
+            data = service.ver_detalhes_verificacao_operacional()
+
+            if not data.get("run"):
+                self._reply_text(sender, "⚠️ Nenhuma verificação operacional encontrada. Execute *verificacao* primeiro.")
+                return
+
+            lista_final = data.get("lista_final", [])
+            summary = data.get("summary", {})
+
+            msg = (
+                f"📋 *Lista Final — Verificação Operacional*\n\n"
+                f"📊 *Resumo:*\n"
+                f"  • Total inicial: {summary.get('inicial_total', 0)}\n"
+                f"  • Total final: {summary.get('final_total', 0)}\n"
+                f"  • 🔒 Bloquear: {summary.get('final_bloquear', 0)}\n"
+                f"  • 🔓 Desbloquear: {summary.get('final_desbloquear', 0)}\n"
+            )
+
+            if lista_final:
+                msg += "\n*Detalhes:*\n"
+                for item in lista_final[:20]:  # Limita a 20 itens no WhatsApp
+                    emoji = "🔒" if item.acao_final == "BLOQUEAR" else "🔓"
+                    msg += f"{emoji} {item.colaborador_nome} — {item.acao_final}\n"
+
+                if len(lista_final) > 20:
+                    msg += f"\n_... e mais {len(lista_final) - 20} itens_"
+            else:
+                msg += "\n✅ Nenhuma ação pendente na fila."
+
+            self._reply_text(sender, msg)
+        except Exception as exc:
+            logger.exception(f"[Bot] Erro ao buscar lista final: {exc}")
+            self._reply_text(sender, f"❌ Erro ao buscar lista final: {exc}")
+
+    def _reply_agenda(self, sender: str) -> None:
+        """Consulta as tasks agendadas no Django-Q2 e mostra próximas execuções."""
+        try:
+            from django_q.models import Schedule
+            from django.utils import timezone
+
+            schedules = Schedule.objects.all().order_by("next_run")
+
+            if not schedules.exists():
+                self._reply_text(sender, "⚠️ Nenhuma task agendada encontrada.")
+                return
+
+            agora = timezone.localtime(timezone.now())
+            msg = f"⏰ *Agenda de Tasks — {agora.strftime('%d/%m/%Y %H:%M')}*\n"
+
+            for s in schedules:
+                status_icon = "✅" if s.repeats != 0 else "⏸️"
+                next_run = timezone.localtime(s.next_run).strftime("%d/%m/%Y às %H:%M") if s.next_run else "—"
+                last_run = timezone.localtime(s.last_run).strftime("%d/%m %H:%M") if s.last_run else "nunca"
+
+                msg += (
+                    f"\n{status_icon} *{s.name}*\n"
+                    f"  📌 Próxima: {next_run}\n"
+                    f"  🕐 Última: {last_run}\n"
+                    f"  🔁 Tipo: {s.schedule_type}\n"
+                )
+
+            self._reply_text(sender, msg)
+        except Exception as exc:
+            logger.exception(f"[Bot] Erro ao buscar agenda: {exc}")
+            self._reply_text(sender, f"❌ Erro ao buscar agenda: {exc}")
