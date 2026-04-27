@@ -22,13 +22,7 @@ SECRET_KEY = env(
     "django-insecure-controle-ferias-dev-key-change-me",
 )
 DEBUG = env("DJANGO_DEBUG", "true").lower() == "true"
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in env("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost,0.0.0.0").split(",")
-    if host.strip()
-]
-if "testserver" not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append("testserver")
+ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -47,6 +41,7 @@ INSTALLED_APPS = [
     "apps.passwords.apps.PasswordsConfig",
     "apps.dashboard.apps.DashboardConfig",
     "apps.reports.apps.ReportsConfig",
+    "apps.bot.apps.BotConfig",
     "django_q",
 ]
 
@@ -139,3 +134,12 @@ Q_CLUSTER = {
     "orm": "default",
 }
 
+# Screenshot do dashboard (Playwright)
+DASHBOARD_SCREENSHOT_TOKEN = env(
+    "DASHBOARD_SCREENSHOT_TOKEN",
+    "troca-esse-token-secreto-agora",
+)
+DASHBOARD_SCREENSHOT_BASE_URL = env(
+    "DASHBOARD_SCREENSHOT_BASE_URL",
+    "http://127.0.0.1:8000",
+)

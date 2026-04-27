@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Estratégico — Relatório de Férias</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f0f4f8;
+            color: #1e293b;
+            padding: 40px;
+            width: 1440px;
+        }
+
+        /* ── Header ── */
+        .print-header {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            margin-bottom: 32px;
+        }
+        .print-header .badge {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: #0f4c81;
+            margin-bottom: 8px;
+        }
+        .print-header h1 {
+            font-size: 36px;
+            font-weight: 900;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+        }
+        .print-header .subtitle {
+            font-size: 15px;
+            color: #64748b;
+            margin-top: 6px;
+        }
+        .print-header .period-badge {
+            background: #0f4c81;
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        /* ── Grid de gráficos ── */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: rgba(255,255,255,0.9);
+            border: 1px solid rgba(255,255,255,0.7);
+            border-radius: 24px;
+            padding: 28px;
+            box-shadow: 0 2px 12px rgba(15,23,42,0.06);
+        }
+        .card-title { font-size: 17px; font-weight: 700; color: #0f172a; }
+        .card-subtitle { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+        .chart-wrap { position: relative; height: 320px; margin-top: 20px; }
+        /* Card de departamentos precisa de mais espaço para a legenda */
+        .chart-wrap-tall { position: relative; height: 470px; margin-top: 20px; }
+
+        /* ── Cards de métricas ── */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+        }
+        .metric-card {
+            background: rgba(255,255,255,0.9);
+            border: 1px solid rgba(255,255,255,0.7);
+            border-radius: 20px;
+            padding: 22px;
+            box-shadow: 0 2px 12px rgba(15,23,42,0.06);
+        }
+        .metric-card.highlight {
+            background: #0f4c81;
+            color: #fff;
+        }
+        .metric-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #94a3b8;
+        }
+        .metric-card.highlight .metric-label { color: rgba(255,255,255,0.7); }
+        .metric-value {
+            font-size: 30px;
+            font-weight: 900;
+            margin-top: 12px;
+            color: #0f172a;
+        }
+        .metric-card.highlight .metric-value { color: #fff; font-size: 16px; font-weight: 500; }
+        .metric-value.green  { color: #10b981; }
+        .metric-value.amber  { color: #f59e0b; }
+        .metric-value.blue   { color: #0f4c81; }
+        .metric-text { font-size: 15px; font-weight: 700; color: #0f172a; margin-top: 12px; }
+
+        /* ── Rodapé ── */
+        .print-footer {
+            margin-top: 28px;
+            text-align: right;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="print-header">
+        <div>
+            <div class="badge">Inteligência de Dados</div>
+            <h1>Dashboard Estratégico</h1>
+            <p class="subtitle">Visualize picos de ausência e impacto operacional por departamento.</p>
+        </div>
+        <div class="period-badge">
+            {{ period_label }}
+        </div>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="charts-grid">
+        <div class="card">
+            <div class="card-title">Pico de Férias</div>
+            <div class="card-subtitle">Volume de saídas por semana</div>
+            <div class="chart-wrap">
+                <canvas id="picoChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-title">Impacto por Departamento</div>
+            <div class="card-subtitle">Colaboradores ausentes no período</div>
+            <div class="chart-wrap-tall">
+                <canvas id="deptChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Métricas -->
+    <div class="metrics-grid">
+        <div class="metric-card highlight">
+            <div class="metric-label">Insight de Planejamento</div>
+            {% if pico_data.peak_label %}
+                <div class="metric-value" style="font-size:15px;font-weight:600;margin-top:12px;">
+                    A semana de <strong>{{ pico_data.peak_label }}</strong> é o pico com <strong>{{ pico_data.peak_value }}</strong> saída{{ pico_data.peak_value|pluralize:"s" }}.
+                </div>
+            {% else %}
+                <div class="metric-value" style="font-size:14px;margin-top:12px;">Sem registros para o período.</div>
+            {% endif %}
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-label">Setor mais Impactado</div>
+            <div class="metric-text">{{ dept_data.labels.0|default:"Nenhum" }}</div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-label">Saíram neste Mês</div>
+            <div class="metric-value blue">{{ total_saiu|default:0 }}</div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-label">Já Voltaram</div>
+            <div class="metric-value green">{{ ja_voltou|default:0 }}</div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-label">Ainda em Férias</div>
+            <div class="metric-value amber">{{ ainda_fora|default:0 }}</div>
+        </div>
+    </div>
+
+    <!-- Rodapé -->
+    <div class="print-footer">
+        Gerado automaticamente pelo Sistema de Controle de Férias
+    </div>
+
+    <div id="deptTooltip" style="display:none"></div>
+
+    <script>
+    (function() {
+        const brandColor = '#0f4c81';
+        const labelsPico = {{ pico_data.labels|safe|default:"[]" }};
+        const valuesPico = {{ pico_data.values|safe|default:"[]" }};
+        const labelsDept = {{ dept_data.labels|safe|default:"[]" }};
+        const valuesDept = {{ dept_data.values|safe|default:"[]" }};
+
+        const canvasPico = document.getElementById('picoChart');
+        if (canvasPico && labelsPico.length > 0) {
+            new Chart(canvasPico.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: labelsPico,
+                    datasets: [{
+                        label: 'Colaboradores',
+                        data: valuesPico,
+                        borderColor: brandColor,
+                        backgroundColor: 'rgba(15, 76, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        borderWidth: 3,
+                        pointRadius: 4,
+                    }]
+                },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        const canvasDept = document.getElementById('deptChart');
+        if (canvasDept && labelsDept.length > 0) {
+            new Chart(canvasDept.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: labelsDept,
+                    datasets: [{
+                        data: valuesDept,
+                        backgroundColor: [
+                            '#0f4c81','#3b82f6','#8b5cf6','#ec4899','#f59e0b',
+                            '#10b981','#6366f1','#f43f5e','#84cc16','#06b6d4',
+                            '#f97316','#a855f7','#14b8a6','#ef4444','#0ea5e9',
+                            '#d946ef','#22c55e','#eab308','#64748b','#f87171'
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: { enabled: false },
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 10,
+                                padding: 9,
+                                font: { size: 9, weight: '600' },
+                                generateLabels: (chart) => {
+                                    const d = chart.data;
+                                    if (d.labels.length && d.datasets.length) {
+                                        return d.labels.map((label, i) => ({
+                                            text: `${label} (${d.datasets[0].data[i]})`,
+                                            fillStyle: d.datasets[0].backgroundColor[i],
+                                            hidden: false,
+                                            index: i
+                                        }));
+                                    }
+                                    return [];
+                                }
+                            }
+                        }
+                    },
+                    cutout: '58%'
+                }
+            });
+        }
+    })();
+    </script>
+</body>
+</html>

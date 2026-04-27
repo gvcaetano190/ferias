@@ -7,3 +7,4 @@ whitenoise>=6.8.2
 django-q2>=1.7.0
 Pillow>=11.1.0
 pystray>=0.19.5
+playwright>=1.44.0

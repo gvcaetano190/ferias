@@ -20,4 +20,5 @@ urlpatterns = [
     path("passwords/", include(("apps.passwords.urls", "passwords"), namespace="passwords")),
     path("sync/", include(("apps.sync.urls", "sync"), namespace="sync")),
     path("reports/", include(("apps.reports.urls", "reports"), namespace="reports")),
+    path("bot/", include(("apps.bot.urls", "bot"), namespace="bot")),
 ]
