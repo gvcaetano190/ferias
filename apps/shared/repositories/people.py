@@ -12,6 +12,20 @@ class ColaboradorRepository:
         except Colaborador.DoesNotExist:
             return None
 
+    def get_by_name(self, nome: str) -> Colaborador | None:
+        normalized = (nome or "").strip()
+        if not normalized:
+            return None
+        return (
+            Colaborador.objects.filter(nome__iexact=normalized)
+            .order_by("-ativo", "nome")
+            .first()
+        )
+
+    def get_email_by_name(self, nome: str) -> str:
+        collaborator = self.get_by_name(nome)
+        return (collaborator.email or "").strip() if collaborator else ""
+
     def search(self, query: str, limit: int = 8) -> list[Colaborador]:
         normalized = (query or "").strip()
         if not normalized:

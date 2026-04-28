@@ -3,7 +3,7 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from PIL import Image, ImageDraw
 from pystray import Icon, Menu, MenuItem
@@ -43,7 +43,7 @@ class ControlPanelApp:
         self.root.minsize(1050, 550)
         self.root.configure(bg=self.BG)
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
-        self.queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.tray_icon: Icon | None = None
         self.status_value = tk.StringVar(value="Carregando...")
         self.web_value = tk.StringVar(value="Verificando...")
@@ -186,6 +186,8 @@ class ControlPanelApp:
                     self.last_action_value.set(message)
                 elif action == "refresh":
                     self.refresh_status()
+                elif action == "port_conflict":
+                    self._handle_port_conflict(message)
         except queue.Empty:
             pass
         self.root.after(1200, self._poll_queue)
@@ -223,9 +225,48 @@ class ControlPanelApp:
             ok, message = action()
             prefix = "OK" if ok else "ERRO"
             self.queue.put(("log", f"{prefix}: {message}"))
+            if not ok and self.service.last_port_conflict:
+                self.queue.put(
+                    (
+                        "port_conflict",
+                        {
+                            "message": message,
+                            "retry_action": action,
+                        },
+                    )
+                )
             self.queue.put(("refresh", ""))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _handle_port_conflict(self, payload) -> None:
+        if not isinstance(payload, dict):
+            return
+        retry_action = payload.get("retry_action")
+        message = str(payload.get("message") or "")
+        if not retry_action:
+            return
+
+        confirm = messagebox.askyesno(
+            "Porta ocupada",
+            (
+                f"{message}\n\n"
+                "Deseja encerrar esse processo, liberar a porta e tentar iniciar o sistema novamente?"
+            ),
+            parent=self.root,
+        )
+        if not confirm:
+            return
+        self._run_async(self._stop_port_conflict_and_retry(retry_action))
+
+    def _stop_port_conflict_and_retry(self, retry_action):
+        def action() -> tuple[bool, str]:
+            ok, message = self.service.stop_port_conflict()
+            if not ok:
+                return ok, message
+            return retry_action()
+
+        return action
 
     def _append_log(self, message: str) -> None:
         self.log_list.insert(0, message)
@@ -249,6 +290,7 @@ class ControlPanelApp:
         del item
         if icon:
             icon.stop()
+        self.service.stop_system()
         self.root.after(0, self.root.destroy)
 
     def _start_tray(self) -> None:

@@ -52,6 +52,12 @@ class SpreadsheetSyncService:
         # NP = "Não Possui": definitivo, a pessoa não tem essa ferramenta.
         # Sobrescreve sempre, sem preservar histórico do AD.
         if imported_normalized == "NP":
+            authoritative_status = self._latest_authoritative_status(
+                collaborator_id=collaborator_id,
+                system_name=system_name,
+            )
+            if authoritative_status in self.AUTHORITATIVE_ACCESS_STATUSES:
+                return authoritative_status
             return "NP"
 
         # BLOQUEADO / LIBERADO: status explícito da planilha, aceita sempre.
@@ -78,10 +84,11 @@ class SpreadsheetSyncService:
         settings.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
         settings.PENDING_SYNC_CSV.parent.mkdir(parents=True, exist_ok=True)
 
-    def run(self, force: bool = False) -> dict[str, Any]:
+    def run(self, force: bool = False, notify: bool = True) -> dict[str, Any]:
         if not self.operational_settings.sync_enabled:
             payload = {"status": "disabled", "message": "Sincronizacao desabilitada no admin."}
-            self._notify_sync_status(payload, force=force)
+            if notify:
+                self._notify_sync_status(payload, force=force)
             return payload
 
         try:
@@ -89,7 +96,8 @@ class SpreadsheetSyncService:
             file_hash = self.calculate_hash(spreadsheet)
             if not force and file_hash == self.last_hash():
                 payload = {"status": "skipped", "message": "A planilha nao mudou desde a ultima sincronizacao."}
-                self._notify_sync_status(payload, force=force)
+                if notify:
+                    self._notify_sync_status(payload, force=force)
                 return payload
 
             records, sheets = self.process_workbook(spreadsheet)
@@ -179,11 +187,13 @@ class SpreadsheetSyncService:
                 "pending": len(pending),
                 "file": str(spreadsheet),
             }
-            self._notify_sync_status(payload, force=force)
+            if notify:
+                self._notify_sync_status(payload, force=force)
             return payload
         except Exception as exc:
             payload = {"status": "error", "message": str(exc)}
-            self._notify_sync_status(payload, force=force)
+            if notify:
+                self._notify_sync_status(payload, force=force)
             raise
 
     def _notify_sync_status(self, payload: dict[str, Any], *, force: bool) -> None:

@@ -46,7 +46,7 @@ class BlockBusinessService:
         self.preview_service = BlockPreviewService()
         self.notification_service = NotificationService()
 
-    def processar_verificacao_block(self, *, require_operational_queue: bool = False) -> dict:
+    def processar_verificacao_block(self, *, require_operational_queue: bool = False, notify: bool = True) -> dict:
         config = self.repository.obter_configuracao_ativa_block()
         dry_run = bool(config and config.dry_run)
         result = BlockServiceResult()
@@ -60,7 +60,8 @@ class BlockBusinessService:
             payload["message"] = (
                 "Verificacao block aguardando uma verificacao operacional concluida hoje para usar a fila final."
             )
-            self._notify_block_execution_status(payload)
+            if notify:
+                self._notify_block_execution_status(payload)
             return payload
         try:
             if verification_run:
@@ -77,7 +78,8 @@ class BlockBusinessService:
             payload["verification_run_id"] = verification_run.id if verification_run else None
             payload["used_operational_queue"] = bool(verification_run)
             payload["message"] = self._build_block_execution_summary_message(payload)
-            self._notify_block_execution_status(payload)
+            if notify:
+                self._notify_block_execution_status(payload)
             return payload
         except Exception as exc:
             payload = result.as_dict()
@@ -86,10 +88,11 @@ class BlockBusinessService:
             payload["used_operational_queue"] = bool(verification_run)
             payload["message"] = str(exc)
             payload["status"] = "error"
-            self._notify_block_execution_status(payload)
+            if notify:
+                self._notify_block_execution_status(payload)
             raise
 
-    def processar_verificacao_operacional_block(self) -> dict:
+    def processar_verificacao_operacional_block(self, *, notify: bool = True) -> dict:
         run = self.repository.criar_verificacao_operacional_run(status=BlockVerificationRun.STATUS_SUCCESS)
         summary = {
             "run_id": run.id,
@@ -111,6 +114,7 @@ class BlockBusinessService:
             for item in items:
                 processed = self._process_verification_candidate(item, ad_lookup=ad_lookup)
                 processed.pop("motivo_inicial", None)
+                processed.pop("force_operational_check", None)
                 self.repository.criar_verificacao_item(run=run, **processed)
                 if processed["acao_final"] == "BLOQUEAR":
                     summary["total_final_bloqueio"] += 1
@@ -147,7 +151,8 @@ class BlockBusinessService:
                 ]
             )
             summary["summary_message"] = run.summary_message
-            self._notify_operational_check_status(summary)
+            if notify:
+                self._notify_operational_check_status(summary)
             return summary
         except Exception as exc:
             run.status = BlockVerificationRun.STATUS_ERROR
@@ -157,7 +162,8 @@ class BlockBusinessService:
             error_summary = dict(summary)
             error_summary["summary_message"] = str(exc)
             error_summary["status"] = "error"
-            self._notify_operational_check_status(error_summary)
+            if notify:
+                self._notify_operational_check_status(error_summary)
             raise
 
     def processar_bloqueios(self, result: BlockServiceResult, *, dry_run: bool = False) -> BlockServiceResult:
@@ -680,6 +686,7 @@ class BlockBusinessService:
             "ad_status_banco_antes": ad_status,
             "vpn_status_banco_antes": vpn_status,
             "motivo_inicial": motivo_inicial,
+            "force_operational_check": self._should_force_operational_check(ad_status, vpn_status),
         }
 
     def _process_verification_candidate(self, item: dict, *, ad_lookup: dict[str, dict]) -> dict:
@@ -688,6 +695,7 @@ class BlockBusinessService:
         colaborador_id = candidate["colaborador_id"]
         ad_status_banco = candidate["ad_status_banco_antes"]
         vpn_status_banco = candidate["vpn_status_banco_antes"]
+        force_operational_check = bool(candidate.get("force_operational_check"))
 
         if self.repository.ja_processado_hoje(colaborador_id, "BLOQUEIO" if acao_inicial == "BLOQUEAR" else "DESBLOQUEIO"):
             candidate.update(
@@ -710,12 +718,26 @@ class BlockBusinessService:
         candidate["vpn_status_real"] = vpn_status_real
 
         if not ad_real.get("success"):
+            if force_operational_check and self._is_missing_ad_user_result(ad_real):
+                candidate.update(
+                    acao_final="IGNORAR",
+                    resultado_verificacao=BlockVerificationItem.OUTCOME_REMOVED,
+                    ad_status_real="NP",
+                    vpn_status_real="NP",
+                    ad_status_banco_depois=ad_status_banco,
+                    vpn_status_banco_depois=vpn_status_banco,
+                    motivo="Usuario nao encontrado no AD. Status NP mantido no banco.",
+                )
+                return candidate
             candidate.update(
                 acao_final="IGNORAR",
                 resultado_verificacao=BlockVerificationItem.OUTCOME_ERROR,
                 ad_status_banco_depois=ad_status_banco,
                 vpn_status_banco_depois=vpn_status_banco,
-                motivo=f"Falha ao validar no AD: {ad_real.get('message', 'Sem detalhe')}",
+                motivo=self._build_operational_lookup_failure_message(
+                    usuario_ad=candidate["usuario_ad"],
+                    ad_result=ad_real,
+                ),
             )
             return candidate
 
@@ -724,6 +746,29 @@ class BlockBusinessService:
         vpn_banco_normalizado = self._normalizar_status_vpn(vpn_status_banco)
         vpn_real_normalizado = self._normalizar_status_vpn(vpn_status_real)
         vpn_changed = vpn_banco_normalizado != vpn_real_normalizado
+        ad_status_banco_depois = ad_status_banco
+        vpn_status_banco_depois = vpn_status_banco
+        np_divergence_synced = False
+
+        if force_operational_check and self._should_force_operational_check(ad_status_banco, vpn_status_banco):
+            if ad_real_normalizado in {"LIBERADO", "BLOQUEADO"}:
+                ad_status_banco_depois = ad_real.get("ad_status", ad_status_banco)
+                vpn_status_banco_depois = vpn_status_real
+                self.repository.atualizar_status_block(
+                    colaborador_id=colaborador_id,
+                    ad_status=ad_status_banco_depois,
+                    vpn_status=vpn_status_banco_depois,
+                )
+                self._notificar_divergencia_operacional_sync(
+                    candidate=candidate,
+                    ad_real=ad_real,
+                    status_banco_antes=ad_status_banco,
+                    vpn_status_banco_antes=vpn_status_banco,
+                    vpn_status_real=vpn_status_real,
+                    vpn_changed=vpn_changed,
+                )
+                np_divergence_synced = True
+                vpn_changed = False
 
         if acao_inicial == "BLOQUEAR":
             if ad_real_normalizado == "BLOQUEADO":
@@ -743,8 +788,8 @@ class BlockBusinessService:
                 candidate.update(
                     acao_final="IGNORAR",
                     resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
-                    ad_status_banco_depois=ad_real.get("ad_status", "BLOQUEADO"),
-                    vpn_status_banco_depois=vpn_status_real,
+                    ad_status_banco_depois=ad_status_banco_depois or ad_real.get("ad_status", "BLOQUEADO"),
+                    vpn_status_banco_depois=vpn_status_banco_depois or vpn_status_real,
                     motivo=(
                         f"Lista inicial pedia bloqueio, mas o AD ja estava bloqueado. "
                         f"Status local era {ad_banco_normalizado or 'VAZIO'} e foi sincronizado."
@@ -752,7 +797,7 @@ class BlockBusinessService:
                 )
                 return candidate
 
-            if vpn_changed:
+            if vpn_changed and not np_divergence_synced:
                 self.repository.atualizar_status_block(
                     colaborador_id=colaborador_id,
                     ad_status=ad_status_banco,
@@ -770,8 +815,8 @@ class BlockBusinessService:
             candidate.update(
                 acao_final="BLOQUEAR",
                 resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
-                ad_status_banco_depois=ad_status_banco,
-                vpn_status_banco_depois=vpn_status_real if vpn_changed else vpn_status_banco,
+                ad_status_banco_depois=ad_status_banco_depois,
+                vpn_status_banco_depois=vpn_status_banco_depois if np_divergence_synced else (vpn_status_real if vpn_changed else vpn_status_banco),
                 motivo=f"Mantido na fila final. {candidate['motivo_inicial']}",
             )
             return candidate
@@ -793,8 +838,8 @@ class BlockBusinessService:
             candidate.update(
                 acao_final="IGNORAR",
                 resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
-                ad_status_banco_depois=ad_real.get("ad_status", "LIBERADO"),
-                vpn_status_banco_depois=vpn_status_real,
+                ad_status_banco_depois=ad_status_banco_depois or ad_real.get("ad_status", "LIBERADO"),
+                vpn_status_banco_depois=vpn_status_banco_depois or vpn_status_real,
                 motivo=(
                     f"Lista inicial pedia desbloqueio, mas o AD ja estava liberado. "
                     f"Status local era {ad_banco_normalizado or 'VAZIO'} e foi sincronizado."
@@ -802,7 +847,7 @@ class BlockBusinessService:
             )
             return candidate
 
-        if vpn_changed:
+        if vpn_changed and not np_divergence_synced:
             self.repository.atualizar_status_block(
                 colaborador_id=colaborador_id,
                 ad_status=ad_status_banco,
@@ -820,8 +865,8 @@ class BlockBusinessService:
         candidate.update(
             acao_final="DESBLOQUEAR",
             resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
-            ad_status_banco_depois=ad_status_banco,
-            vpn_status_banco_depois=vpn_status_real if vpn_changed else vpn_status_banco,
+            ad_status_banco_depois=ad_status_banco_depois,
+            vpn_status_banco_depois=vpn_status_banco_depois if np_divergence_synced else (vpn_status_real if vpn_changed else vpn_status_banco),
             motivo=f"Mantido na fila final. {candidate['motivo_inicial']}",
         )
         return candidate
@@ -920,6 +965,40 @@ class BlockBusinessService:
         if value in {"NP", "NB", "", "-"}:
             return "NP"
         return value
+
+    def _should_force_operational_check(self, ad_status: str, vpn_status: str) -> bool:
+        return self._normalizar_status_ad(ad_status) == "NP" and self._normalizar_status_vpn(vpn_status) == "NP"
+
+    def _is_missing_ad_user_result(self, ad_result: dict) -> bool:
+        if ad_result.get("user_found"):
+            return False
+        message = (ad_result.get("message") or "").strip().lower()
+        return "nao encontrado" in message or "não encontrado" in message
+
+    def _is_user_not_found_lookup_error(self, ad_result: dict) -> bool:
+        if ad_result.get("user_found"):
+            return False
+        message = (ad_result.get("message") or "").strip().lower()
+        markers = (
+            "nao encontrado",
+            "nÃ£o encontrado",
+            "localizar um objeto",
+            "nao e possivel localizar um objeto",
+            "nao Ã© possivel localizar um objeto",
+            "nÃ£o Ã© possÃ­vel localizar um objeto",
+            "cannot find an object with identity",
+        )
+        return any(marker in message for marker in markers)
+
+    def _build_operational_lookup_failure_message(self, *, usuario_ad: str, ad_result: dict) -> str:
+        original_message = ad_result.get("message", "Sem detalhe")
+        if self._is_user_not_found_lookup_error(ad_result):
+            return (
+                f"Usuario nao encontrado no AD para o login '{usuario_ad}'. "
+                f"Verifique se o login_ad esta correto ou se a conta ainda existe no dominio. "
+                f"Detalhe tecnico: {original_message}"
+            )
+        return f"Falha ao validar no AD: {original_message}"
 
     def _build_verification_summary_message(self, summary: dict) -> str:
         return (

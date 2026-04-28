@@ -1,30 +1,59 @@
-<article id="password-link-{{ link.pk }}" class="history-card rounded-3xl border border-slate-200 bg-white p-4" data-history-text="{{ link.nome_pessoa|default:''|lower }} {{ link.gestor_pessoa|default:''|lower }}">
-  <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-    <div>
-      <h4 class="font-bold text-slate-900">{{ link.nome_pessoa|default:"Sem nome" }}</h4>
-      <p class="text-sm text-slate-500">{{ link.gestor_pessoa|default:"Sem gestor" }}</p>
+<article
+  id="password-link-{{ link.pk }}"
+  class="history-card rounded-[28px] border border-slate-200 bg-white p-4 shadow-soft"
+  data-history-text="{{ link.nome_pessoa|default:''|lower }} {{ link.pessoa_email|default:''|lower }} {{ link.gestor_pessoa|default:''|lower }} {{ link.gestor_email|default:''|lower }}"
+>
+  <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div class="min-w-0">
+      <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-brand-500">{{ link.finalidade|default:"Acesso Temporario" }}</p>
+      <h4 class="mt-2 text-xl font-black text-slate-900">{{ link.nome_pessoa|default:"Sem nome" }}</h4>
+      <div class="mt-3 grid gap-3 md:grid-cols-2">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">E-mail da pessoa</p>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <code id="person-email-{{ link.pk }}" class="rounded-xl bg-white px-3 py-2 text-xs text-slate-700">{{ link.pessoa_email|default:"Sem e-mail cadastrado" }}</code>
+            {% if link.pessoa_email %}
+              <button type="button" class="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700" onclick="copyFromElement('person-email-{{ link.pk }}', this)">Copiar</button>
+            {% endif %}
+          </div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Gestor</p>
+          <p class="mt-2 text-sm font-semibold text-slate-900">{{ link.gestor_pessoa|default:"Sem gestor" }}</p>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <code id="manager-email-{{ link.pk }}" class="rounded-xl bg-white px-3 py-2 text-xs text-slate-700">{{ link.gestor_email|default:"Sem e-mail do gestor" }}</code>
+            {% if link.gestor_email %}
+              <button type="button" class="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700" onclick="copyFromElement('manager-email-{{ link.pk }}', this)">Copiar</button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
     </div>
     <span class="inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold {{ link.status_style }}">
       {{ link.status_label }}
     </span>
   </div>
-  <div class="mt-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
-    <p class="font-semibold text-slate-800">{% if link.finalidade == "Segredo Livre" %}Segredo{% else %}Senha{% endif %}</p>
-    <div class="mt-2 flex flex-wrap items-center gap-2">
-      <code id="password-value-{{ link.pk }}" class="max-w-full whitespace-pre-wrap break-words rounded-xl bg-white px-3 py-2 text-slate-700">{{ link.senha_usada|default:"-" }}</code>
-      <button type="button" class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700" onclick="copyFromElement('password-value-{{ link.pk }}', this)">Copiar conteúdo</button>
+
+  <div class="mt-4 grid gap-3 xl:grid-cols-2">
+    <div class="rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-600">
+      <p class="font-semibold text-slate-800">{% if link.finalidade == "Segredo Livre" %}Segredo{% else %}Senha{% endif %}</p>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <code id="password-value-{{ link.pk }}" class="max-w-full whitespace-pre-wrap break-words rounded-xl bg-white px-3 py-2 text-slate-700">{{ link.senha_usada|default:"-" }}</code>
+        <button type="button" class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700" onclick="copyFromElement('password-value-{{ link.pk }}', this)">Copiar conteudo</button>
+      </div>
+    </div>
+    <div class="rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-600">
+      <p class="font-semibold text-slate-800">Link</p>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <code id="link-value-{{ link.pk }}" class="break-all rounded-xl bg-white px-3 py-2 text-slate-700">{{ link.link_url }}</code>
+        <button type="button" class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700" onclick="copyFromElement('link-value-{{ link.pk }}', this)">Copiar link</button>
+      </div>
     </div>
   </div>
-  <div class="mt-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-600">
-    <p class="font-semibold text-slate-800">Link</p>
-    <div class="mt-2 flex flex-wrap items-center gap-2">
-      <code id="link-value-{{ link.pk }}" class="break-all rounded-xl bg-white px-3 py-2 text-slate-700">{{ link.link_url }}</code>
-      <button type="button" class="rounded-full border border-slate-200 px-3 py-1 font-semibold text-slate-700" onclick="copyFromElement('link-value-{{ link.pk }}', this)">Copiar link</button>
-    </div>
-  </div>
+
   <div class="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
     <span>Criado em {{ link.criado_em|date:"d/m/Y H:i" }}</span>
-    <span>Duração {{ link.ttl_label }}</span>
+    <span>Duracao {{ link.ttl_label }}</span>
     {% if link.expires_at %}
       <span>Expira em {{ link.expires_at|date:"d/m/Y H:i" }}</span>
     {% endif %}

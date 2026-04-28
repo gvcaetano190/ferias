@@ -550,6 +550,92 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
         )
         post_mock.assert_called()
 
+    def test_verificacao_operacional_inclui_np_np_em_desbloqueio_e_sincroniza_quando_usuario_existe(self):
+        colaborador, _ = self.preparar_cenario(
+            scenario="retorno-hoje",
+            status_ad="NP",
+            status_vpn="NP",
+        )
+
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_bloqueado(vpn_status="NP", is_in_printi_acesso=False)]):
+            with patch("apps.notifications.providers.evolution.requests.post") as post_mock:
+                mock_response = post_mock.return_value
+                mock_response.status_code = 201
+                mock_response.json.return_value = {"key": "value"}
+                resumo = self.service.processar_verificacao_operacional_block()
+
+        self.assertEqual(resumo["total_inicial_desbloqueio"], 1)
+        self.assertEqual(resumo["total_final_desbloqueio"], 1)
+        self.assertEqual(resumo["total_sincronizados"], 0)
+        self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
+        self._assert_status(colaborador.id, self.vpn_system_name, "NP")
+        item = BlockVerificationItem.objects.get(colaborador_id=colaborador.id)
+        self.assertEqual(item.acao_inicial, "DESBLOQUEAR")
+        self.assertEqual(item.acao_final, "DESBLOQUEAR")
+        self.assertEqual(item.resultado_verificacao, BlockVerificationItem.OUTCOME_KEPT)
+        self.assertEqual(item.ad_status_banco_antes, "NP")
+        self.assertEqual(item.ad_status_banco_depois, "BLOQUEADO")
+        self.assertEqual(
+            NotificationDelivery.objects.filter(
+                event_key="notifications.divergence.validated",
+                status=NotificationDelivery.STATUS_SENT,
+            ).count(),
+            1,
+        )
+        post_mock.assert_called()
+
+    def test_verificacao_operacional_inclui_np_np_e_mantem_np_quando_usuario_nao_existe_no_ad(self):
+        colaborador, _ = self.preparar_cenario(
+            scenario="retorno-hoje",
+            status_ad="NP",
+            status_vpn="NP",
+        )
+
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[self._consulta_nao_encontrado()]):
+            resumo = self.service.processar_verificacao_operacional_block()
+
+        self.assertEqual(resumo["total_inicial_desbloqueio"], 1)
+        self.assertEqual(resumo["total_final_desbloqueio"], 0)
+        self.assertEqual(resumo["total_ignorados"], 1)
+        self._assert_status(colaborador.id, self.ad_system_name, "NP")
+        self._assert_status(colaborador.id, self.vpn_system_name, "NP")
+        item = BlockVerificationItem.objects.get(colaborador_id=colaborador.id)
+        self.assertEqual(item.acao_final, "IGNORAR")
+        self.assertEqual(item.resultado_verificacao, BlockVerificationItem.OUTCOME_REMOVED)
+        self.assertIn("status np mantido", item.motivo.lower())
+
+    def test_verificacao_operacional_exibe_mensagem_amigavel_quando_ad_nao_localiza_objeto(self):
+        colaborador, _ = self.preparar_cenario(
+            scenario="retorno-hoje",
+            status_ad="NP",
+            status_vpn="NP",
+        )
+
+        consulta = {
+            "success": False,
+            "usuario_ad": self.usuario_ad_teste,
+            "user_found": False,
+            "ad_status": "ERRO",
+            "vpn_status": "NP",
+            "message": (
+                f"NÃ£o Ã© possÃ­vel localizar um objeto com identidade: "
+                f"'{self.usuario_ad_teste}' em: 'DC=printi,DC=local'."
+            ),
+            "is_enabled": False,
+            "is_in_printi_acesso": False,
+            "already_in_desired_state": False,
+        }
+
+        with patch("apps.block.business_service.consultar_usuarios_ad", return_value=[consulta]):
+            resumo = self.service.processar_verificacao_operacional_block()
+
+        self.assertEqual(resumo["total_erros"], 1)
+        item = BlockVerificationItem.objects.get(colaborador_id=colaborador.id)
+        self.assertEqual(item.acao_final, "IGNORAR")
+        self.assertEqual(item.resultado_verificacao, BlockVerificationItem.OUTCOME_ERROR)
+        self.assertIn("usuario nao encontrado no ad", item.motivo.lower())
+        self.assertIn(self.usuario_ad_teste, item.motivo)
+
     def test_verificacao_operacional_registra_motivo_quando_ja_processado_hoje(self):
         colaborador, ferias = self.preparar_cenario(
             scenario="saida-hoje",
@@ -684,6 +770,97 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
 
                 preview_final = self.service.previsualizar_verificacao_block()
                 self.assertEqual(preview_final["summary"]["total"], 0)
+
+    def test_sync_np_na_planilha_preserva_status_operacional_ja_confirmado(self):
+        colaborador = self.criar_colaborador_teste()
+        datas = self.scenario_dates("saida-hoje")
+        records_iniciais = [
+            {
+                "nome": colaborador.nome,
+                "email": colaborador.email,
+                "login_ad": colaborador.login_ad,
+                "unidade": "Operacoes",
+                "motivo": "Ferias",
+                "data_saida": datas.data_saida.strftime("%Y-%m-%d"),
+                "data_retorno": datas.data_retorno.strftime("%Y-%m-%d"),
+                "gestor": "Gestor Teste",
+                "aba_origem": "Abril 2026",
+                "mes": datas.data_retorno.month,
+                "ano": datas.data_retorno.year,
+                "acessos": {
+                    "AD PRIN": "NB",
+                    "VPN": "NP",
+                },
+            }
+        ]
+        records_com_np = [
+            {
+                **records_iniciais[0],
+                "acessos": {
+                    "AD PRIN": "NP",
+                    "VPN": "NP",
+                },
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with override_settings(
+                DOWNLOAD_DIR=self._tmp_path(temp_dir, "downloads"),
+                PENDING_SYNC_CSV=self._tmp_path(temp_dir, "pendencias_sync_ferias.csv"),
+            ):
+                service = SpreadsheetSyncService()
+
+                self._executar_sync_fake(service, records_iniciais)
+                with patch(
+                    "apps.block.business_service.consultar_usuarios_ad",
+                    return_value=[self._consulta_bloqueado(vpn_status="BLOQUEADA")],
+                ):
+                    resumo_verificacao = self.service.processar_verificacao_operacional_block()
+
+                self.assertEqual(resumo_verificacao["total_sincronizados"], 1)
+                self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
+                self._assert_status(colaborador.id, self.vpn_system_name, "LIBERADA")
+
+                self._executar_sync_fake(service, records_com_np)
+                self._assert_status(colaborador.id, self.ad_system_name, "BLOQUEADO")
+                self._assert_status(colaborador.id, self.vpn_system_name, "LIBERADA")
+
+                preview_final = self.service.previsualizar_verificacao_block()
+                self.assertEqual(preview_final["summary"]["total"], 0)
+
+    def test_sync_np_na_planilha_mantem_np_sem_historico_operacional_confiavel(self):
+        colaborador = self.criar_colaborador_teste()
+        datas = self.scenario_dates("saida-hoje")
+        records = [
+            {
+                "nome": colaborador.nome,
+                "email": colaborador.email,
+                "login_ad": colaborador.login_ad,
+                "unidade": "Operacoes",
+                "motivo": "Ferias",
+                "data_saida": datas.data_saida.strftime("%Y-%m-%d"),
+                "data_retorno": datas.data_retorno.strftime("%Y-%m-%d"),
+                "gestor": "Gestor Teste",
+                "aba_origem": "Abril 2026",
+                "mes": datas.data_retorno.month,
+                "ano": datas.data_retorno.year,
+                "acessos": {
+                    "AD PRIN": "NP",
+                    "VPN": "NP",
+                },
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with override_settings(
+                DOWNLOAD_DIR=self._tmp_path(temp_dir, "downloads"),
+                PENDING_SYNC_CSV=self._tmp_path(temp_dir, "pendencias_sync_ferias.csv"),
+            ):
+                service = SpreadsheetSyncService()
+                self._executar_sync_fake(service, records)
+
+        self._assert_status(colaborador.id, self.ad_system_name, "NP")
+        self._assert_status(colaborador.id, self.vpn_system_name, "NP")
 
     def test_sync_envia_notificacao_de_status_ao_final(self):
         colaborador = self.criar_colaborador_teste()
@@ -839,6 +1016,19 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             "ad_status": "LIBERADO",
             "vpn_status": "NP",
             "message": "Usuario desbloqueado com sucesso",
+            "already_in_desired_state": False,
+        }
+
+    def _consulta_nao_encontrado(self):
+        return {
+            "success": False,
+            "usuario_ad": self.usuario_ad_teste,
+            "user_found": False,
+            "ad_status": "ERRO",
+            "vpn_status": "NP",
+            "message": "Usuario nao encontrado no AD",
+            "is_enabled": False,
+            "is_in_printi_acesso": False,
             "already_in_desired_state": False,
         }
 

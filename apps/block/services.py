@@ -28,8 +28,8 @@ class BlockService:
     def processar_verificacao_block(self, **kwargs):
         return self.business_service.processar_verificacao_block(**kwargs)
 
-    def processar_verificacao_operacional_block(self):
-        return self.business_service.processar_verificacao_operacional_block()
+    def processar_verificacao_operacional_block(self, **kwargs):
+        return self.business_service.processar_verificacao_operacional_block(**kwargs)
 
     def processar_bloqueios(self, *args, **kwargs):
         return self.business_service.processar_bloqueios(*args, **kwargs)

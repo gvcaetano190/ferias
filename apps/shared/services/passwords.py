@@ -24,6 +24,7 @@ class PasswordManagementService:
     def decorate_link(self, item):
         now = timezone.now()
         expires_at = None
+        self._attach_contact_metadata(item)
 
         # Em parte do legado, `expirado_em` já vinha salvo como a data-limite do link.
         if item.expirado_em and item.expirado_em > now:
@@ -55,7 +56,11 @@ class PasswordManagementService:
         return item
 
     def search_collaborators(self, query: str, limit: int = 8):
-        return self.collaborators.search(query, limit=limit)
+        results = self.collaborators.search(query, limit=limit)
+        for collaborator in results:
+            collaborator.pessoa_email = (collaborator.email or "").strip()
+            collaborator.gestor_email = self.collaborators.get_email_by_name(collaborator.gestor or "")
+        return results
 
     def create_link(
         self,
@@ -120,6 +125,18 @@ class PasswordManagementService:
             self.links.mark_expired(password_link.pk)
         password_link = self.links.get(pk)
         return self.decorate_link(password_link), result
+
+    def _attach_contact_metadata(self, item) -> None:
+        person_name = (item.nome_pessoa or "").strip()
+        manager_name = (item.gestor_pessoa or "").strip()
+
+        collaborator = self.collaborators.get_by_name(person_name) if person_name else None
+        if collaborator and not manager_name:
+            manager_name = (collaborator.gestor or "").strip()
+            item.gestor_pessoa = manager_name or item.gestor_pessoa
+
+        item.pessoa_email = (collaborator.email or "").strip() if collaborator and collaborator.email else ""
+        item.gestor_email = self.collaborators.get_email_by_name(manager_name) if manager_name else ""
 
     def _format_duration(self, total_seconds: int) -> str:
         seconds = max(0, int(total_seconds))

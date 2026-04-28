@@ -56,6 +56,10 @@ class BlockPreviewService:
         collaborator = ferias.colaborador
         ad_status_atual = self.repository.obter_status_ad(collaborator.id)
         vpn_status_atual = self.repository.obter_status_vpn(collaborator.id)
+        force_operational_check = self._should_force_operational_check(
+            ad_status_atual,
+            vpn_status_atual,
+        )
         ja_processado = self.repository.ja_processado_hoje(collaborator.id, "BLOQUEIO")
         motivo = (
             "Saindo de ferias hoje"
@@ -64,7 +68,7 @@ class BlockPreviewService:
         )
         if ja_processado:
             return None
-        if not self.repository.pode_bloquear(collaborator.id):
+        if not self.repository.pode_bloquear(collaborator.id) and not force_operational_check:
             return None
         return self._preview_row(
             ferias,
@@ -72,13 +76,18 @@ class BlockPreviewService:
             ad_status_atual=ad_status_atual,
             vpn_status_atual=vpn_status_atual,
             acao_prevista="BLOQUEAR",
-            motivo=motivo,
+            motivo=self._decorate_force_operational_reason(motivo, force_operational_check),
+            force_operational_check=force_operational_check,
         )
 
     def _preview_usuario_desbloqueio(self, ferias) -> dict | None:
         collaborator = ferias.colaborador
         ad_status_atual = self.repository.obter_status_ad(collaborator.id)
         vpn_status_atual = self.repository.obter_status_vpn(collaborator.id)
+        force_operational_check = self._should_force_operational_check(
+            ad_status_atual,
+            vpn_status_atual,
+        )
         ja_processado = self.repository.ja_processado_hoje(collaborator.id, "DESBLOQUEIO")
         motivo = (
             "Retornando de ferias hoje"
@@ -87,7 +96,7 @@ class BlockPreviewService:
         )
         if ja_processado:
             return None
-        if not self.repository.pode_desbloquear(collaborator.id):
+        if not self.repository.pode_desbloquear(collaborator.id) and not force_operational_check:
             return None
         return self._preview_row(
             ferias,
@@ -95,7 +104,8 @@ class BlockPreviewService:
             ad_status_atual=ad_status_atual,
             vpn_status_atual=vpn_status_atual,
             acao_prevista="DESBLOQUEAR",
-            motivo=motivo,
+            motivo=self._decorate_force_operational_reason(motivo, force_operational_check),
+            force_operational_check=force_operational_check,
         )
 
     def _preview_row(
@@ -107,6 +117,7 @@ class BlockPreviewService:
         vpn_status_atual: str,
         acao_prevista: str,
         motivo: str,
+        force_operational_check: bool,
     ) -> dict:
         collaborator = ferias.colaborador
         return {
@@ -121,7 +132,18 @@ class BlockPreviewService:
             "status_atual_vpn": vpn_status_atual or "-",
             "acao_prevista": acao_prevista,
             "motivo": motivo,
+            "force_operational_check": force_operational_check,
         }
+
+    def _should_force_operational_check(self, ad_status: str, vpn_status: str) -> bool:
+        ad_value = (ad_status or "").strip().upper()
+        vpn_value = (vpn_status or "").strip().upper()
+        return ad_value == "NP" and vpn_value == "NP"
+
+    def _decorate_force_operational_reason(self, motivo: str, force_operational_check: bool) -> str:
+        if not force_operational_check:
+            return motivo
+        return f"{motivo} Validacao forcada porque AD e VPN estao como NP no banco."
 
     def ver_detalhes_verificacao_operacional(self, *, run_id: int | None = None) -> dict:
         run = self.repository.buscar_verificacao_operacional_run(run_id)
