@@ -139,6 +139,15 @@ class BotService:
         self._execute(sender, command, normalized)
 
     def _parse_command(self, text: str) -> str:
+        if text.startswith("buscar "):
+            return "buscar_colaborador"
+
+        if text.startswith("gestor "):
+            return "buscar_gestor"
+
+        if any(word in text for word in ["previsao", "previsão", "previsão de hoje", "🔮 previsão"]):
+            return "previsao_hoje"
+
         if any(word in text for word in ["sincronizar", "sincroniza", "sync", "atualizar planilha"]):
             return "sincronizar"
 
@@ -204,6 +213,14 @@ class BotService:
             self._reply_executar_block(sender)
         elif command == "lista_final":
             self._reply_lista_final(sender)
+        elif command == "buscar_colaborador":
+            termo = original_text.lower().replace("buscar ", "", 1).strip()
+            self._reply_buscar_colaborador(sender, termo)
+        elif command == "buscar_gestor":
+            termo = original_text.lower().replace("gestor ", "", 1).strip()
+            self._reply_buscar_gestor(sender, termo)
+        elif command == "previsao_hoje":
+            self._reply_previsao_hoje(sender)
         elif command == "agenda":
             self._reply_agenda(sender)
         elif command == "ajuda":
@@ -239,6 +256,80 @@ class BotService:
         if not result.success:
             logger.error("[Bot] Falha ao enviar texto: %s", result.message)
 
+    def _reply_buscar_colaborador(self, sender: str, termo: str) -> None:
+        from apps.bot.queries import BotQueryService
+        queries = BotQueryService()
+        dados = queries.buscar_colaborador(termo)
+        
+        if not dados:
+            self._reply_text(sender, f"❌ Não encontrei nenhum colaborador com o termo: '{termo}'.")
+            return
+            
+        ferias_txt = "Nenhuma programada futuramente"
+        if dados['ferias_saida']:
+            saida = dados['ferias_saida'].strftime('%d/%m/%Y')
+            retorno = dados['ferias_retorno'].strftime('%d/%m/%Y')
+            ferias_txt = f"Sai {saida}, Volta {retorno}"
+            
+        msg = (
+            f"👤 *{dados['nome']}*\n"
+            f"📧 Email: {dados['email'] or '—'}\n"
+            f"💻 Login AD: {dados['login_ad'] or '—'}\n"
+            f"🏢 Setor: {dados['departamento'] or '—'}\n"
+            f"👮 Gestor: {dados['gestor'] or '—'}\n"
+            f"🏖️ Férias: {ferias_txt}\n\n"
+            f"🔒 VPN: {dados['status_vpn']}\n"
+            f"🔒 AD: {dados['status_ad']}"
+        )
+        self._reply_text(sender, msg)
+
+    def _reply_buscar_gestor(self, sender: str, termo: str) -> None:
+        from apps.bot.queries import BotQueryService
+        queries = BotQueryService()
+        dados = queries.buscar_gestor(termo)
+        
+        if not dados:
+            self._reply_text(sender, f"❌ Não consegui achar gestor para '{termo}'.")
+            return
+            
+        msg = (
+            f"Colaborador: *{dados['colaborador_nome']}*\n"
+            f"👮 *Gestor:* {dados['gestor_nome']}\n"
+            f"📧 *Email do Gestor:* {dados['gestor_email']}"
+        )
+        self._reply_text(sender, msg)
+
+    def _reply_previsao_hoje(self, sender: str) -> None:
+        try:
+            from apps.block.preview_service import BlockPreviewService
+            service = BlockPreviewService()
+            data = service.previsualizar_verificacao_block()
+            
+            rows = data.get("rows", [])
+            summary = data.get("summary", {})
+            
+            if not rows:
+                self._reply_text(sender, "🔮 *Previsão de Hoje*\nNenhuma ação de bloqueio ou desbloqueio pendente para hoje na prévia.")
+                return
+                
+            msg = (
+                "🔮 *Previsão de Bloqueios/Desbloqueios de Hoje*\n\n"
+                f"*Resumo*: {summary.get('bloquear', 0)} para Bloquear | {summary.get('desbloquear', 0)} para Desbloquear\n\n"
+            )
+            
+            for item in rows[:15]:
+                acao = item.get("acao_prevista", "—")
+                icone = "🔒" if acao == "BLOQUEAR" else "🔓" if acao == "DESBLOQUEAR" else "➖"
+                msg += f"{icone} {acao}: {item['colaborador']}\n"
+                
+            if len(rows) > 15:
+                msg += f"\n... e mais {len(rows) - 15} itens."
+                
+            self._reply_text(sender, msg)
+        except Exception as exc:
+            logger.exception("[Bot] Erro ao buscar previsão: %s", exc)
+            self._reply_text(sender, f"Erro ao buscar previsão: {exc}")
+
     def _reply_menu(self, sender: str) -> None:
         """Envia o menu interativo com os comandos mais comuns."""
         provider = self._get_provider()
@@ -248,14 +339,14 @@ class BotService:
         # O Provider Evolution tem suporte nativo para _send_buttons
         if hasattr(provider, "send_buttons"):
             botoes = [
-                {"id": "btn_dashboard", "text": "📊 Ver Dashboard"},
+                {"id": "btn_previsao", "text": "🔮 Previsão de Hoje"},
                 {"id": "btn_sync", "text": "🔄 Sincronizar"},
-                {"id": "btn_fila", "text": "📋 Lista Final"}
+                {"id": "btn_dashboard", "text": "📊 Ver Dashboard"}
             ]
             
             result = provider.send_buttons(
                 destination=sender,
-                text="🤖 *Menu Principal*\nEscolha uma das opções rápidas abaixo ou digite o que precisa (ex: _quem sai hoje_):",
+                text="🤖 *Menu Principal*\nEscolha uma das opções rápidas abaixo ou digite o que precisa (ex: _buscar joão_, _gestor maria_):",
                 buttons=botoes,
                 footer="Gestão de Férias e Acessos"
             )
