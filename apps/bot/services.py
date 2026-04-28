@@ -207,9 +207,9 @@ class BotService:
         elif command == "agenda":
             self._reply_agenda(sender)
         elif command == "ajuda":
-            self._reply_text(sender, MENSAGEM_AJUDA)
+            self._reply_menu(sender)
         else:
-            self._reply_text(sender, "Nao entendi o comando.\nDigite *ajuda* para ver o que posso fazer.")
+            self._reply_menu(sender)
 
     def _get_provider(self):
         """Carrega o provider Evolution API ativo do banco."""
@@ -238,6 +238,34 @@ class BotService:
         result = provider.send_text(destination=sender, text=text)
         if not result.success:
             logger.error("[Bot] Falha ao enviar texto: %s", result.message)
+
+    def _reply_menu(self, sender: str) -> None:
+        """Envia o menu interativo com os comandos mais comuns."""
+        provider = self._get_provider()
+        if not provider:
+            return
+        
+        # O Provider Evolution tem suporte nativo para _send_buttons
+        if hasattr(provider, "send_buttons"):
+            botoes = [
+                {"id": "btn_dashboard", "text": "📊 Ver Dashboard"},
+                {"id": "btn_sync", "text": "🔄 Sincronizar"},
+                {"id": "btn_fila", "text": "📋 Lista Final"}
+            ]
+            
+            result = provider.send_buttons(
+                destination=sender,
+                text="🤖 *Menu Principal*\nEscolha uma das opções rápidas abaixo ou digite o que precisa (ex: _quem sai hoje_):",
+                buttons=botoes,
+                footer="Gestão de Férias e Acessos"
+            )
+            if result.success:
+                return
+            else:
+                logger.warning("[Bot] Falha ao enviar botões: %s. Tentando texto.", result.message)
+                
+        # Fallback para texto caso a API de botões falhe ou não suporte
+        self._reply_text(sender, MENSAGEM_AJUDA)
 
     def _reply_dashboard(self, sender: str, month: int | None, year: int | None) -> None:
         """Gera o screenshot do dashboard e envia como imagem."""

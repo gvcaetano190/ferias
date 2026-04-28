@@ -162,3 +162,76 @@ class EvolutionWhatsAppProvider(BaseNotificationProvider):
             status_code=response.status_code,
             response_payload=response_payload,
         )
+
+    def send_buttons(self, *, destination: str, text: str, buttons: list[dict], footer: str = "") -> ProviderSendResult:
+        """
+        Envia uma mensagem com botões interativos via Evolution API (sendButtons).
+        buttons: lista de dicionários no formato [{"id": "btn1", "text": "Texto do Botão"}]
+        """
+        if requests is None:
+            return ProviderSendResult(success=False, message="Biblioteca requests nao disponivel.")
+        if not self.endpoint_url:
+            return ProviderSendResult(success=False, message="Endpoint da Evolution API nao configurado.")
+
+        destination_value = self.format_destination(destination)
+        if not destination_value:
+            return ProviderSendResult(success=False, message="Destino de notificacao nao configurado.")
+
+        base = self._base_url()
+        instance = self._instance_name()
+        buttons_url = f"{base}/message/sendButtons/{instance}"
+
+        formatted_buttons = []
+        for btn in buttons:
+            formatted_buttons.append({
+                "type": "reply",
+                "reply": {
+                    "id": btn.get("id", ""),
+                    "title": btn.get("text", "")
+                }
+            })
+
+        payload = {
+            "number": destination_value,
+            "options": {"delay": 1200},
+            "buttonMessage": {
+                "text": text,
+                "footer": footer,
+                "buttons": formatted_buttons
+            }
+        }
+
+        try:
+            response = requests.post(
+                buttons_url,
+                json=payload,
+                headers=self._headers(),
+                timeout=self.timeout_seconds,
+            )
+        except requests.exceptions.Timeout:
+            return ProviderSendResult(success=False, message="Timeout ao enviar botoes para Evolution API.")
+        except requests.exceptions.ConnectionError:
+            return ProviderSendResult(success=False, message="Falha de conexao com Evolution API.")
+        except Exception as exc:
+            return ProviderSendResult(success=False, message=f"Erro inesperado ao enviar botoes: {exc}")
+
+        response_payload = None
+        try:
+            response_payload = response.json()
+        except Exception:
+            response_payload = {"raw": response.text}
+
+        if response.status_code in {200, 201}:
+            return ProviderSendResult(
+                success=True,
+                message="Botoes enviados com sucesso.",
+                status_code=response.status_code,
+                response_payload=response_payload,
+            )
+
+        return ProviderSendResult(
+            success=False,
+            message=f"Erro HTTP {response.status_code}: {response.text}",
+            status_code=response.status_code,
+            response_payload=response_payload,
+        )
