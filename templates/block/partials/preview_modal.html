@@ -35,7 +35,7 @@
     <div class="max-h-[52vh] overflow-auto px-6 py-5">
       {% if rows %}
         <div class="overflow-x-auto rounded-3xl border border-slate-200">
-          <table class="min-w-[1180px] divide-y divide-slate-200 text-sm">
+          <table class="min-w-[1320px] divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-xs uppercase tracking-[0.2em] text-slate-500">
               <tr>
                 <th class="px-4 py-3">Colaborador</th>
@@ -45,6 +45,7 @@
                 <th class="px-4 py-3">Data retorno</th>
                 <th class="px-4 py-3">AD atual</th>
                 <th class="px-4 py-3">VPN atual</th>
+                <th class="px-4 py-3">TOTVS atual</th>
                 <th class="px-4 py-3">Ação prevista</th>
                 <th class="px-4 py-3">Motivo</th>
               </tr>
@@ -59,6 +60,7 @@
                   <td class="px-4 py-3">{{ row.data_retorno|date:"d/m/Y"|default:"-" }}</td>
                   <td class="px-4 py-3">{{ row.status_atual_ad }}</td>
                   <td class="px-4 py-3">{{ row.status_atual_vpn }}</td>
+                  <td class="px-4 py-3">{{ row.status_atual_totvs }}</td>
                   <td class="px-4 py-3">
                     <span class="rounded-full px-3 py-1 text-xs font-semibold {% if row.acao_prevista == 'BLOQUEAR' %}bg-amber-100 text-amber-700{% elif row.acao_prevista == 'DESBLOQUEAR' %}bg-sky-100 text-sky-700{% else %}bg-slate-100 text-slate-700{% endif %}">
                       {{ row.acao_prevista }}

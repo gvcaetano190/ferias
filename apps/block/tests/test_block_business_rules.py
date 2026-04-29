@@ -24,6 +24,27 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
     def setUp(self):
         super().setUp()
         self.service = BlockService()
+        self._totvs_consulta_patcher = patch.object(
+            self.service.business_service.totvs_service,
+            "consultar_usuarios_operacionais",
+            side_effect=self._fake_consultar_usuarios_totvs,
+        )
+        self._totvs_bloqueio_patcher = patch.object(
+            self.service.business_service.totvs_service,
+            "bloquear_usuarios_operacionais",
+            side_effect=self._fake_bloquear_usuarios_totvs,
+        )
+        self._totvs_desbloqueio_patcher = patch.object(
+            self.service.business_service.totvs_service,
+            "desbloquear_usuarios_operacionais",
+            side_effect=self._fake_desbloquear_usuarios_totvs,
+        )
+        self._totvs_consulta_patcher.start()
+        self._totvs_bloqueio_patcher.start()
+        self._totvs_desbloqueio_patcher.start()
+        self.addCleanup(self._totvs_consulta_patcher.stop)
+        self.addCleanup(self._totvs_bloqueio_patcher.stop)
+        self.addCleanup(self._totvs_desbloqueio_patcher.stop)
         self.notification_target = NotificationTarget.objects.create(
             name="Grupo Operacional",
             target_type=NotificationTarget.TYPE_GROUP,
@@ -37,6 +58,67 @@ class BlockBusinessRulesTests(BlockIntegrationDataMixin, TransactionTestCase):
             api_key="token",
             default_target=self.notification_target,
         )
+
+    def _fake_consultar_usuarios_totvs(self, identifiers):
+        resultados = []
+        for identifier in identifiers:
+            colaborador = self._resolver_colaborador_por_login(identifier)
+            status = self._status_totvs_colaborador(colaborador)
+            resultados.append(
+                {
+                    "success": True,
+                    "usuario_ad": identifier,
+                    "totvs_user_id": f"totvs-{identifier}",
+                    "totvs_status": status,
+                    "message": "Consulta TOTVS simulada com sucesso.",
+                    "user_found": status != "NP",
+                    "active": status == "LIBERADO",
+                }
+            )
+        return resultados
+
+    def _fake_bloquear_usuarios_totvs(self, identifiers):
+        return [
+            {
+                "success": True,
+                "usuario_ad": identifier,
+                "totvs_user_id": f"totvs-{identifier}",
+                "totvs_status": "BLOQUEADO",
+                "message": "Bloqueio TOTVS simulado com sucesso.",
+                "user_found": True,
+                "active": False,
+            }
+            for identifier in identifiers
+        ]
+
+    def _fake_desbloquear_usuarios_totvs(self, identifiers):
+        return [
+            {
+                "success": True,
+                "usuario_ad": identifier,
+                "totvs_user_id": f"totvs-{identifier}",
+                "totvs_status": "LIBERADO",
+                "message": "Desbloqueio TOTVS simulado com sucesso.",
+                "user_found": True,
+                "active": True,
+            }
+            for identifier in identifiers
+        ]
+
+    def _resolver_colaborador_por_login(self, identifier):
+        return self.service.business_service.repository.obter_colaborador_por_login_ou_email(
+            usuario_ad=identifier,
+            email="",
+        )
+
+    def _status_totvs_colaborador(self, colaborador):
+        if not colaborador:
+            return "NP"
+        acesso = Acesso.objects.filter(
+            colaborador_id=colaborador.id,
+            sistema=self.totvs_system_name,
+        ).order_by("-updated_at", "-id").first()
+        return (getattr(acesso, "status", "") or "NP").strip().upper()
 
     def test_saida_hoje_bloqueia_e_bloqueia_vpn_quando_usuario_esta_no_grupo(self):
         colaborador, ferias = self.preparar_cenario(

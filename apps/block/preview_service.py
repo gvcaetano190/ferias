@@ -56,6 +56,7 @@ class BlockPreviewService:
         collaborator = ferias.colaborador
         ad_status_atual = self.repository.obter_status_ad(collaborator.id)
         vpn_status_atual = self.repository.obter_status_vpn(collaborator.id)
+        totvs_status_atual = self.repository.obter_status_totvs(collaborator.id)
         force_operational_check = self._should_force_operational_check(
             ad_status_atual,
             vpn_status_atual,
@@ -75,8 +76,13 @@ class BlockPreviewService:
             acao_ordem=0,
             ad_status_atual=ad_status_atual,
             vpn_status_atual=vpn_status_atual,
+            totvs_status_atual=totvs_status_atual,
             acao_prevista="BLOQUEAR",
-            motivo=self._decorate_force_operational_reason(motivo, force_operational_check),
+            motivo=self._decorate_force_operational_reason(
+                motivo,
+                force_operational_check=force_operational_check,
+                force_totvs_operational_check=False,
+            ),
             force_operational_check=force_operational_check,
         )
 
@@ -84,6 +90,7 @@ class BlockPreviewService:
         collaborator = ferias.colaborador
         ad_status_atual = self.repository.obter_status_ad(collaborator.id)
         vpn_status_atual = self.repository.obter_status_vpn(collaborator.id)
+        totvs_status_atual = self.repository.obter_status_totvs(collaborator.id)
         force_operational_check = self._should_force_operational_check(
             ad_status_atual,
             vpn_status_atual,
@@ -103,8 +110,13 @@ class BlockPreviewService:
             acao_ordem=1,
             ad_status_atual=ad_status_atual,
             vpn_status_atual=vpn_status_atual,
+            totvs_status_atual=totvs_status_atual,
             acao_prevista="DESBLOQUEAR",
-            motivo=self._decorate_force_operational_reason(motivo, force_operational_check),
+            motivo=self._decorate_force_operational_reason(
+                motivo,
+                force_operational_check=force_operational_check,
+                force_totvs_operational_check=False,
+            ),
             force_operational_check=force_operational_check,
         )
 
@@ -115,6 +127,7 @@ class BlockPreviewService:
         acao_ordem: int,
         ad_status_atual: str,
         vpn_status_atual: str,
+        totvs_status_atual: str,
         acao_prevista: str,
         motivo: str,
         force_operational_check: bool,
@@ -130,6 +143,7 @@ class BlockPreviewService:
             "data_referencia": ferias.data_saida if acao_ordem == 0 else ferias.data_retorno,
             "status_atual_ad": ad_status_atual or "-",
             "status_atual_vpn": vpn_status_atual or "-",
+            "status_atual_totvs": totvs_status_atual or "-",
             "acao_prevista": acao_prevista,
             "motivo": motivo,
             "force_operational_check": force_operational_check,
@@ -140,10 +154,25 @@ class BlockPreviewService:
         vpn_value = (vpn_status or "").strip().upper()
         return ad_value == "NP" and vpn_value == "NP"
 
-    def _decorate_force_operational_reason(self, motivo: str, force_operational_check: bool) -> str:
-        if not force_operational_check:
+    def _should_force_totvs_operational_check(self, totvs_status: str) -> bool:
+        value = (totvs_status or "").strip().upper()
+        return value in {"NB", "NP"}
+
+    def _decorate_force_operational_reason(
+        self,
+        motivo: str,
+        *,
+        force_operational_check: bool,
+        force_totvs_operational_check: bool,
+    ) -> str:
+        extras = []
+        if force_operational_check:
+            extras.append("AD e VPN estao como NP no banco")
+        if force_totvs_operational_check:
+            extras.append("TOTVS esta como NB/NP no banco")
+        if not extras:
             return motivo
-        return f"{motivo} Validacao forcada porque AD e VPN estao como NP no banco."
+        return f"{motivo} Validacao forcada porque {' e '.join(extras)}."
 
     def ver_detalhes_verificacao_operacional(self, *, run_id: int | None = None) -> dict:
         run = self.repository.buscar_verificacao_operacional_run(run_id)

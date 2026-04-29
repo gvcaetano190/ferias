@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "apps.dashboard.apps.DashboardConfig",
     "apps.reports.apps.ReportsConfig",
     "apps.bot.apps.BotConfig",
+    "apps.totvs.apps.TotvsConfig",
     "django_q",
 ]
 

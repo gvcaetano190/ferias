@@ -9,6 +9,23 @@ from datetime import date
 
 
 class BotQueryService:
+    def localizar_colaborador(self, termo: str):
+        from django.db.models import Q
+        from apps.people.models import Colaborador
+
+        termo = (termo or "").strip()
+        if not termo:
+            return None
+
+        return (
+            Colaborador.objects.filter(
+                Q(nome__icontains=termo)
+                | Q(email__icontains=termo)
+                | Q(login_ad__icontains=termo)
+            )
+            .order_by("nome")
+            .first()
+        )
 
     def saidas_hoje(self) -> list[dict]:
         """Retorna quem começa férias hoje."""
@@ -53,17 +70,7 @@ class BotQueryService:
 
     def buscar_colaborador(self, termo: str) -> dict | None:
         """Busca os detalhes 360 de um colaborador por nome ou email."""
-        from django.db.models import Q
-        from apps.people.models import Colaborador
-        
-        termo = termo.strip()
-        if not termo:
-            return None
-            
-        colab = Colaborador.objects.filter(
-            Q(nome__icontains=termo) | Q(email__icontains=termo)
-        ).first()
-        
+        colab = self.localizar_colaborador(termo)
         if not colab:
             return None
             

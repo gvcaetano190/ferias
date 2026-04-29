@@ -10,6 +10,7 @@ from apps.block.models import BlockVerificationItem, BlockVerificationRun
 from apps.block.preview_service import BlockPreviewService
 from apps.block.repositories import BlockRepository
 from apps.notifications.services import NotificationService
+from apps.totvs.services import TotvsIntegrationService
 from integrations.ad.executor import (
     bloquear_usuario_ad,
     bloquear_usuarios_ad,
@@ -45,6 +46,7 @@ class BlockBusinessService:
         self.repository = BlockRepository()
         self.preview_service = BlockPreviewService()
         self.notification_service = NotificationService()
+        self.totvs_service = TotvsIntegrationService()
 
     def processar_verificacao_block(self, *, require_operational_queue: bool = False, notify: bool = True) -> dict:
         config = self.repository.obter_configuracao_ativa_block()
@@ -108,13 +110,19 @@ class BlockBusinessService:
         try:
             items = self._build_verification_candidates()
             ad_lookup = self._consultar_estados_ad_operacionais(items)
+            totvs_lookup = self._consultar_estados_totvs_operacionais(items)
             summary["total_inicial_bloqueio"] = sum(1 for item in items if item["acao_inicial"] == "BLOQUEAR")
             summary["total_inicial_desbloqueio"] = sum(1 for item in items if item["acao_inicial"] == "DESBLOQUEAR")
 
             for item in items:
-                processed = self._process_verification_candidate(item, ad_lookup=ad_lookup)
+                processed = self._process_verification_candidate(
+                    item,
+                    ad_lookup=ad_lookup,
+                    totvs_lookup=totvs_lookup,
+                )
                 processed.pop("motivo_inicial", None)
                 processed.pop("force_operational_check", None)
+                processed.pop("force_totvs_operational_check", None)
                 self.repository.criar_verificacao_item(run=run, **processed)
                 if processed["acao_final"] == "BLOQUEAR":
                     summary["total_final_bloqueio"] += 1
@@ -484,6 +492,22 @@ class BlockBusinessService:
         )
 
     def _processar_bloqueios_em_lote(self, ferias_list: list, *, result: BlockServiceResult, dry_run: bool) -> None:
+        candidatos_para_executar = self._preparar_candidatos_execucao(
+            ferias_list,
+            acao="BLOQUEIO",
+            mensagem_ignorado="Bloqueio ignorado: AD e TOTVS ja estao coerentes com o estado esperado.",
+            mensagem_simulacao="Simulacao: Execucao de bloqueio em lote para {sistemas}.",
+            dry_run=dry_run,
+            result=result,
+        )
+        if not candidatos_para_executar:
+            return
+        self._executar_lote_integrado(
+            candidatos_para_executar,
+            acao="BLOQUEIO",
+            result=result,
+        )
+        return
         candidatos_para_executar = []
         for ferias in ferias_list:
             collaborator = ferias.colaborador
@@ -546,6 +570,22 @@ class BlockBusinessService:
             self._acumular_resultado(result, {"resultado": resultado_final}, acao="BLOQUEIO")
 
     def _processar_desbloqueios_em_lote(self, ferias_list: list, *, result: BlockServiceResult, dry_run: bool) -> None:
+        candidatos_para_executar = self._preparar_candidatos_execucao(
+            ferias_list,
+            acao="DESBLOQUEIO",
+            mensagem_ignorado="Desbloqueio ignorado: AD e TOTVS ja estao coerentes com o estado esperado.",
+            mensagem_simulacao="Simulacao: Execucao de desbloqueio em lote para {sistemas}.",
+            dry_run=dry_run,
+            result=result,
+        )
+        if not candidatos_para_executar:
+            return
+        self._executar_lote_integrado(
+            candidatos_para_executar,
+            acao="DESBLOQUEIO",
+            result=result,
+        )
+        return
         candidatos_para_executar = []
         for ferias in ferias_list:
             collaborator = ferias.colaborador
@@ -607,6 +647,164 @@ class BlockBusinessService:
             )
             self._acumular_resultado(result, {"resultado": resultado_final}, acao="DESBLOQUEIO")
 
+    def _preparar_candidatos_execucao(
+        self,
+        ferias_list: list,
+        *,
+        acao: str,
+        mensagem_ignorado: str,
+        mensagem_simulacao: str,
+        dry_run: bool,
+        result: BlockServiceResult,
+    ) -> list[dict]:
+        candidatos_para_executar = []
+        for ferias in ferias_list:
+            collaborator = ferias.colaborador
+            if acao == "BLOQUEIO":
+                executar_ad = self.repository.pode_executar_bloqueio_ad(collaborator.id)
+                executar_totvs = self.repository.pode_executar_bloqueio_totvs(collaborator.id)
+            else:
+                executar_ad = self.repository.pode_executar_desbloqueio_ad(collaborator.id)
+                executar_totvs = self.repository.pode_executar_desbloqueio_totvs(collaborator.id)
+
+            if not executar_ad and not executar_totvs:
+                self._registrar_ignorado(ferias, mensagem_ignorado, acao=acao)
+                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao=acao)
+                continue
+
+            if self.repository.ja_processado_hoje(collaborator.id, acao):
+                acao_legivel = "Bloqueio" if acao == "BLOQUEIO" else "Desbloqueio"
+                self._registrar_ignorado(
+                    ferias,
+                    f"{acao_legivel} ja executado com sucesso hoje.",
+                    acao=acao,
+                )
+                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao=acao)
+                continue
+
+            if dry_run:
+                sistemas = []
+                if executar_ad:
+                    sistemas.append("AD")
+                if executar_totvs:
+                    sistemas.append("TOTVS")
+                self._registrar_ignorado(
+                    ferias,
+                    mensagem_simulacao.format(sistemas=", ".join(sistemas)),
+                    acao=acao,
+                )
+                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao=acao)
+                continue
+
+            candidatos_para_executar.append(
+                {
+                    "ferias": ferias,
+                    "executar_ad": executar_ad,
+                    "executar_totvs": executar_totvs,
+                }
+            )
+        return candidatos_para_executar
+
+    def _executar_lote_integrado(
+        self,
+        candidatos_para_executar: list[dict],
+        *,
+        acao: str,
+        result: BlockServiceResult,
+    ) -> None:
+        usuarios_ad = [
+            item["ferias"].colaborador.login_ad
+            for item in candidatos_para_executar
+            if item["executar_ad"] and item["ferias"].colaborador.login_ad
+        ]
+        resultados_ad_lookup = {}
+        if usuarios_ad:
+            executor_ad = bloquear_usuarios_ad if acao == "BLOQUEIO" else desbloquear_usuarios_ad
+            resultados_ad = executor_ad(usuarios_ad)
+            resultados_ad_lookup = {r.get("usuario_ad", "").strip().lower(): r for r in resultados_ad}
+
+        usuarios_totvs = [
+            item["ferias"].colaborador.login_ad
+            for item in candidatos_para_executar
+            if item["executar_totvs"] and item["ferias"].colaborador.login_ad
+        ]
+        resultados_totvs_lookup = {}
+        if usuarios_totvs:
+            executor_totvs = (
+                self.totvs_service.bloquear_usuarios_operacionais
+                if acao == "BLOQUEIO"
+                else self.totvs_service.desbloquear_usuarios_operacionais
+            )
+            resultados_totvs = executor_totvs(usuarios_totvs)
+            resultados_totvs_lookup = {r.get("usuario_ad", "").strip().lower(): r for r in resultados_totvs}
+
+        for item in candidatos_para_executar:
+            ferias = item["ferias"]
+            collaborator = ferias.colaborador
+            usuario_ad = (collaborator.login_ad or "").strip()
+            chave = usuario_ad.lower()
+
+            ad_status_atual = self.repository.obter_status_ad(collaborator.id) or ""
+            vpn_status_atual = self.repository.obter_status_vpn(collaborator.id) or ""
+            totvs_status_atual = self.repository.obter_status_totvs(collaborator.id) or ""
+
+            ad_result = None
+            if item["executar_ad"]:
+                ad_result = resultados_ad_lookup.get(chave)
+                if not ad_result:
+                    ad_result = self._error_consulta_operacional(
+                        usuario_ad,
+                        "Nao retornou no lote do AD.",
+                    )
+
+            totvs_result = None
+            if item["executar_totvs"]:
+                totvs_result = resultados_totvs_lookup.get(chave)
+                if not totvs_result:
+                    totvs_result = self._error_consulta_totvs(
+                        usuario_ad,
+                        "Nao retornou no lote controlado do TOTVS.",
+                    )
+
+            ad_success = ad_result is None or bool(ad_result.get("success"))
+            totvs_success = totvs_result is None or bool(totvs_result.get("success"))
+            ad_status_final = ad_result.get("ad_status", ad_status_atual) if ad_result is not None else ad_status_atual
+            vpn_status_final = ad_result.get("vpn_status", vpn_status_atual) if ad_result is not None else vpn_status_atual
+            totvs_status_final = (
+                totvs_result.get("totvs_status", totvs_status_atual)
+                if totvs_result is not None
+                else totvs_status_atual
+            )
+
+            self.repository.atualizar_status_block(
+                colaborador_id=collaborator.id,
+                ad_status=ad_status_final if ad_success else ad_status_atual,
+                vpn_status=vpn_status_final if ad_success else vpn_status_atual,
+                totvs_status=totvs_status_final if totvs_success else totvs_status_atual,
+            )
+
+            mensagens = []
+            if ad_result is not None:
+                mensagens.append(f"AD: {ad_result.get('message', '')}".strip())
+            if totvs_result is not None:
+                mensagens.append(f"TOTVS: {totvs_result.get('message', '')}".strip())
+
+            resultado_final = "SUCESSO" if ad_success and totvs_success else "ERRO"
+            self.repository.salvar_resultado_execucao(
+                colaborador_id=collaborator.id,
+                usuario_ad=usuario_ad,
+                email=collaborator.email or "",
+                acao=acao,
+                data_saida=ferias.data_saida,
+                data_retorno=ferias.data_retorno,
+                ad_status=ad_status_final if ad_success else ad_status_atual,
+                vpn_status=vpn_status_final if ad_success else vpn_status_atual,
+                totvs_status=totvs_status_final if totvs_success else totvs_status_atual,
+                resultado=resultado_final,
+                mensagem=" | ".join([mensagem for mensagem in mensagens if mensagem]),
+            )
+            self._acumular_resultado(result, {"resultado": resultado_final}, acao=acao)
+
     def _registrar_ignorado(self, ferias, mensagem: str, *, acao: str) -> None:
         collaborator = ferias.colaborador
         self.repository.salvar_resultado_execucao(
@@ -616,8 +814,9 @@ class BlockBusinessService:
             acao=acao,
             data_saida=ferias.data_saida,
             data_retorno=ferias.data_retorno,
-            ad_status="IGNORADO",
-            vpn_status="IGNORADO",
+            ad_status=self.repository.obter_status_ad(collaborator.id) or "IGNORADO",
+            vpn_status=self.repository.obter_status_vpn(collaborator.id) or "IGNORADO",
+            totvs_status=self.repository.obter_status_totvs(collaborator.id) or "IGNORADO",
             resultado="IGNORADO",
             mensagem=mensagem,
         )
@@ -674,6 +873,7 @@ class BlockBusinessService:
         collaborator = ferias.colaborador
         ad_status = self.repository.obter_status_ad(collaborator.id)
         vpn_status = self.repository.obter_status_vpn(collaborator.id)
+        totvs_status = self.repository.obter_status_totvs(collaborator.id)
         motivo_inicial = self._motivo_inicial_verificacao(ferias, acao_inicial=acao_inicial)
         return {
             "colaborador_id": collaborator.id,
@@ -685,17 +885,25 @@ class BlockBusinessService:
             "acao_inicial": acao_inicial,
             "ad_status_banco_antes": ad_status,
             "vpn_status_banco_antes": vpn_status,
+            "totvs_status_banco_antes": totvs_status,
             "motivo_inicial": motivo_inicial,
             "force_operational_check": self._should_force_operational_check(ad_status, vpn_status),
+            "force_totvs_operational_check": self._should_force_totvs_operational_check(totvs_status),
         }
 
-    def _process_verification_candidate(self, item: dict, *, ad_lookup: dict[str, dict]) -> dict:
+    def _process_verification_candidate(
+        self,
+        item: dict,
+        *,
+        ad_lookup: dict[str, dict],
+        totvs_lookup: dict[str, dict],
+    ) -> dict:
         candidate = dict(item)
         acao_inicial = candidate["acao_inicial"]
         colaborador_id = candidate["colaborador_id"]
         ad_status_banco = candidate["ad_status_banco_antes"]
         vpn_status_banco = candidate["vpn_status_banco_antes"]
-        force_operational_check = bool(candidate.get("force_operational_check"))
+        totvs_status_banco = candidate["totvs_status_banco_antes"]
 
         if self.repository.ja_processado_hoje(colaborador_id, "BLOQUEIO" if acao_inicial == "BLOQUEAR" else "DESBLOQUEIO"):
             candidate.update(
@@ -703,8 +911,10 @@ class BlockBusinessService:
                 resultado_verificacao=BlockVerificationItem.OUTCOME_REMOVED,
                 ad_status_real=ad_status_banco,
                 vpn_status_real=vpn_status_banco,
+                totvs_status_real=totvs_status_banco,
                 ad_status_banco_depois=ad_status_banco,
                 vpn_status_banco_depois=vpn_status_banco,
+                totvs_status_banco_depois=totvs_status_banco,
                 motivo="Ja processado hoje com sucesso.",
             )
             return candidate
@@ -713,27 +923,33 @@ class BlockBusinessService:
             candidate["usuario_ad"],
             "Usuario nao retornado pela consulta em lote.",
         )
-        vpn_status_real = self._vpn_status_from_group_membership(ad_real)
+        vpn_status_real = self._vpn_status_from_group_membership(ad_real) if ad_real.get("success") else "NP"
         candidate["ad_status_real"] = ad_real.get("ad_status", "ERRO")
         candidate["vpn_status_real"] = vpn_status_real
 
         if not ad_real.get("success"):
-            if force_operational_check and self._is_missing_ad_user_result(ad_real):
+            if (
+                self._is_missing_ad_user_result(ad_real)
+                and self._normalizar_status_ad(ad_status_banco) == "NP"
+                and self._normalizar_status_vpn(vpn_status_banco) == "NP"
+            ):
                 candidate.update(
                     acao_final="IGNORAR",
                     resultado_verificacao=BlockVerificationItem.OUTCOME_REMOVED,
-                    ad_status_real="NP",
-                    vpn_status_real="NP",
+                    totvs_status_real=totvs_status_banco,
                     ad_status_banco_depois=ad_status_banco,
                     vpn_status_banco_depois=vpn_status_banco,
-                    motivo="Usuario nao encontrado no AD. Status NP mantido no banco.",
+                    totvs_status_banco_depois=totvs_status_banco,
+                    motivo="Usuario nao encontrado no AD; status NP mantido no banco sem acao final.",
                 )
                 return candidate
             candidate.update(
                 acao_final="IGNORAR",
                 resultado_verificacao=BlockVerificationItem.OUTCOME_ERROR,
+                totvs_status_real=totvs_status_banco,
                 ad_status_banco_depois=ad_status_banco,
                 vpn_status_banco_depois=vpn_status_banco,
+                totvs_status_banco_depois=totvs_status_banco,
                 motivo=self._build_operational_lookup_failure_message(
                     usuario_ad=candidate["usuario_ad"],
                     ad_result=ad_real,
@@ -742,90 +958,21 @@ class BlockBusinessService:
             return candidate
 
         ad_real_normalizado = self._normalizar_status_ad(ad_real.get("ad_status") or "")
-        ad_banco_normalizado = self._normalizar_status_ad(ad_status_banco)
-        vpn_banco_normalizado = self._normalizar_status_vpn(vpn_status_banco)
         vpn_real_normalizado = self._normalizar_status_vpn(vpn_status_real)
-        vpn_changed = vpn_banco_normalizado != vpn_real_normalizado
-        ad_status_banco_depois = ad_status_banco
-        vpn_status_banco_depois = vpn_status_banco
-        np_divergence_synced = False
+        ad_status_banco_depois = ad_real.get("ad_status", ad_status_banco)
+        vpn_status_banco_depois = vpn_status_real
+        sync_messages: list[str] = []
+        ad_changed = self._normalizar_status_ad(ad_status_banco) != ad_real_normalizado
+        vpn_changed = self._normalizar_status_vpn(vpn_status_banco) != vpn_real_normalizado
 
-        if force_operational_check and self._should_force_operational_check(ad_status_banco, vpn_status_banco):
-            if ad_real_normalizado in {"LIBERADO", "BLOQUEADO"}:
-                ad_status_banco_depois = ad_real.get("ad_status", ad_status_banco)
-                vpn_status_banco_depois = vpn_status_real
-                self.repository.atualizar_status_block(
-                    colaborador_id=colaborador_id,
-                    ad_status=ad_status_banco_depois,
-                    vpn_status=vpn_status_banco_depois,
-                )
-                self._notificar_divergencia_operacional_sync(
-                    candidate=candidate,
-                    ad_real=ad_real,
-                    status_banco_antes=ad_status_banco,
-                    vpn_status_banco_antes=vpn_status_banco,
-                    vpn_status_real=vpn_status_real,
-                    vpn_changed=vpn_changed,
-                )
-                np_divergence_synced = True
-                vpn_changed = False
-
-        if acao_inicial == "BLOQUEAR":
-            if ad_real_normalizado == "BLOQUEADO":
-                self.repository.atualizar_status_block(
-                    colaborador_id=colaborador_id,
-                    ad_status=ad_real.get("ad_status", "BLOQUEADO"),
-                    vpn_status=vpn_status_real,
-                )
-                self._notificar_divergencia_operacional_sync(
-                    candidate=candidate,
-                    ad_real=ad_real,
-                    status_banco_antes=ad_status_banco,
-                    vpn_status_banco_antes=vpn_status_banco,
-                    vpn_status_real=vpn_status_real,
-                    vpn_changed=vpn_changed,
-                )
-                candidate.update(
-                    acao_final="IGNORAR",
-                    resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
-                    ad_status_banco_depois=ad_status_banco_depois or ad_real.get("ad_status", "BLOQUEADO"),
-                    vpn_status_banco_depois=vpn_status_banco_depois or vpn_status_real,
-                    motivo=(
-                        f"Lista inicial pedia bloqueio, mas o AD ja estava bloqueado. "
-                        f"Status local era {ad_banco_normalizado or 'VAZIO'} e foi sincronizado."
-                    ),
-                )
-                return candidate
-
-            if vpn_changed and not np_divergence_synced:
-                self.repository.atualizar_status_block(
-                    colaborador_id=colaborador_id,
-                    ad_status=ad_status_banco,
-                    vpn_status=vpn_status_real,
-                )
-                self._notificar_divergencia_operacional_sync(
-                    candidate=candidate,
-                    ad_real=ad_real,
-                    status_banco_antes=ad_status_banco,
-                    vpn_status_banco_antes=vpn_status_banco,
-                    vpn_status_real=vpn_status_real,
-                    vpn_changed=True,
-                )
-
-            candidate.update(
-                acao_final="BLOQUEAR",
-                resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
-                ad_status_banco_depois=ad_status_banco_depois,
-                vpn_status_banco_depois=vpn_status_banco_depois if np_divergence_synced else (vpn_status_real if vpn_changed else vpn_status_banco),
-                motivo=f"Mantido na fila final. {candidate['motivo_inicial']}",
-            )
-            return candidate
-
-        if ad_real_normalizado == "LIBERADO":
+        if ad_changed or vpn_changed:
             self.repository.atualizar_status_block(
                 colaborador_id=colaborador_id,
-                ad_status=ad_real.get("ad_status", "LIBERADO"),
-                vpn_status=vpn_status_real,
+                ad_status=ad_status_banco_depois,
+                vpn_status=vpn_status_banco_depois,
+            )
+            sync_messages.append(
+                f"AD/VPN sincronizados para {ad_status_banco_depois}/{vpn_status_banco_depois}."
             )
             self._notificar_divergencia_operacional_sync(
                 candidate=candidate,
@@ -835,39 +982,97 @@ class BlockBusinessService:
                 vpn_status_real=vpn_status_real,
                 vpn_changed=vpn_changed,
             )
+
+        desired_ad = "BLOQUEADO" if acao_inicial == "BLOQUEAR" else "LIBERADO"
+        ad_needs_action = ad_real_normalizado != desired_ad
+
+        totvs_real = totvs_lookup.get(candidate["usuario_ad"].strip().lower()) or self._error_consulta_totvs(
+            candidate["usuario_ad"],
+            "Usuario nao retornado pela consulta controlada do TOTVS.",
+        )
+        candidate["totvs_status_real"] = totvs_real.get("totvs_status", "ERRO")
+        if not totvs_real.get("success"):
             candidate.update(
                 acao_final="IGNORAR",
-                resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
-                ad_status_banco_depois=ad_status_banco_depois or ad_real.get("ad_status", "LIBERADO"),
-                vpn_status_banco_depois=vpn_status_banco_depois or vpn_status_real,
+                resultado_verificacao=BlockVerificationItem.OUTCOME_ERROR,
+                ad_status_banco_depois=ad_status_banco_depois,
+                vpn_status_banco_depois=vpn_status_banco_depois,
+                totvs_status_banco_depois=totvs_status_banco,
+                motivo=totvs_real.get("message", "Falha ao consultar TOTVS."),
+            )
+            return candidate
+
+        totvs_found = bool(totvs_real.get("user_found"))
+        totvs_real_normalizado = self._normalizar_status_totvs(totvs_real.get("totvs_status") or "")
+        totvs_status_banco_depois = totvs_status_banco
+        totvs_status_banco_normalizado = self._normalizar_status_totvs(totvs_status_banco)
+        if not totvs_found:
+            totvs_real_normalizado = "NP"
+            candidate["totvs_status_real"] = "NP"
+            if totvs_status_banco_normalizado and totvs_status_banco_normalizado != "NP":
+                totvs_status_banco_depois = "NP"
+                self.repository.atualizar_status_block(
+                    colaborador_id=colaborador_id,
+                    ad_status=ad_status_banco_depois,
+                    vpn_status=vpn_status_banco_depois,
+                    totvs_status="NP",
+                )
+                sync_messages.append("TOTVS nao encontrado e status local ajustado para NP.")
+        else:
+            totvs_status_banco_depois = totvs_real.get("totvs_status", totvs_status_banco)
+            if totvs_status_banco_normalizado and totvs_status_banco_normalizado != totvs_real_normalizado:
+                self.repository.atualizar_status_block(
+                    colaborador_id=colaborador_id,
+                    ad_status=ad_status_banco_depois,
+                    vpn_status=vpn_status_banco_depois,
+                    totvs_status=totvs_status_banco_depois,
+                )
+                sync_messages.append(f"TOTVS sincronizado para {totvs_status_banco_depois}.")
+            elif not totvs_status_banco_normalizado:
+                totvs_status_banco_depois = totvs_status_banco
+
+        desired_totvs = "BLOQUEADO" if acao_inicial == "BLOQUEAR" else "LIBERADO"
+        totvs_needs_action = totvs_found and totvs_real_normalizado != desired_totvs
+
+        candidate["ad_status_banco_depois"] = ad_status_banco_depois
+        candidate["vpn_status_banco_depois"] = vpn_status_banco_depois
+        candidate["totvs_status_banco_depois"] = totvs_status_banco_depois
+
+        pending_systems = []
+        if ad_needs_action:
+            pending_systems.append("AD")
+        if totvs_needs_action:
+            pending_systems.append("TOTVS")
+
+        if pending_systems:
+            candidate.update(
+                acao_final=acao_inicial,
+                resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
                 motivo=(
-                    f"Lista inicial pedia desbloqueio, mas o AD ja estava liberado. "
-                    f"Status local era {ad_banco_normalizado or 'VAZIO'} e foi sincronizado."
+                    f"Mantido na fila final. {candidate['motivo_inicial']} "
+                    f"Sistemas pendentes: {', '.join(pending_systems)}."
                 ),
             )
             return candidate
 
-        if vpn_changed and not np_divergence_synced:
-            self.repository.atualizar_status_block(
-                colaborador_id=colaborador_id,
-                ad_status=ad_status_banco,
-                vpn_status=vpn_status_real,
+        if sync_messages:
+            friendly_sync_message = " ".join(sync_messages)
+            if ad_changed and not pending_systems and ad_real_normalizado == desired_ad:
+                if desired_ad == "LIBERADO":
+                    friendly_sync_message = "Usuario ja estava liberado no AD; banco sincronizado antes da fila final."
+                else:
+                    friendly_sync_message = "Usuario ja estava bloqueado no AD; banco sincronizado antes da fila final."
+            candidate.update(
+                acao_final="IGNORAR",
+                resultado_verificacao=BlockVerificationItem.OUTCOME_SYNCED,
+                motivo=friendly_sync_message,
             )
-            self._notificar_divergencia_operacional_sync(
-                candidate=candidate,
-                ad_real=ad_real,
-                status_banco_antes=ad_status_banco,
-                vpn_status_banco_antes=vpn_status_banco,
-                vpn_status_real=vpn_status_real,
-                vpn_changed=True,
-            )
+            return candidate
 
         candidate.update(
-            acao_final="DESBLOQUEAR",
-            resultado_verificacao=BlockVerificationItem.OUTCOME_KEPT,
-            ad_status_banco_depois=ad_status_banco_depois,
-            vpn_status_banco_depois=vpn_status_banco_depois if np_divergence_synced else (vpn_status_real if vpn_changed else vpn_status_banco),
-            motivo=f"Mantido na fila final. {candidate['motivo_inicial']}",
+            acao_final="IGNORAR",
+            resultado_verificacao=BlockVerificationItem.OUTCOME_REMOVED,
+            motivo="Sem acao necessaria apos validacao operacional.",
         )
         return candidate
 
@@ -936,6 +1141,24 @@ class BlockBusinessService:
                 lookup[chave] = resultado
         return lookup
 
+    def _consultar_estados_totvs_operacionais(self, items: list[dict]) -> dict[str, dict]:
+        usuarios = []
+        for item in items:
+            usuario_ad = (item.get("usuario_ad") or "").strip()
+            if usuario_ad:
+                usuarios.append(usuario_ad)
+
+        if not usuarios:
+            return {}
+
+        resultados = self.totvs_service.consultar_usuarios_operacionais(usuarios)
+        lookup = {}
+        for resultado in resultados:
+            chave = (resultado.get("usuario_ad") or "").strip().lower()
+            if chave:
+                lookup[chave] = resultado
+        return lookup
+
     def _error_consulta_operacional(self, usuario_ad: str, message: str) -> dict:
         return {
             "success": False,
@@ -947,6 +1170,16 @@ class BlockBusinessService:
             "is_enabled": False,
             "is_in_printi_acesso": False,
             "already_in_desired_state": False,
+        }
+
+    def _error_consulta_totvs(self, usuario_ad: str, message: str) -> dict:
+        return {
+            "success": False,
+            "usuario_ad": usuario_ad,
+            "totvs_status": "ERRO",
+            "message": message,
+            "user_found": False,
+            "active": False,
         }
 
     def _motivo_inicial_verificacao(self, ferias, *, acao_inicial: str) -> str:
@@ -965,6 +1198,21 @@ class BlockBusinessService:
         if value in {"NP", "NB", "", "-"}:
             return "NP"
         return value
+
+    def _normalizar_status_totvs(self, status: str) -> str:
+        value = (status or "").strip().upper()
+        if value in {"BLOQUEADO", "BLOQUEADA"}:
+            return "BLOQUEADO"
+        if value in {"LIBERADO", "LIBERADA"}:
+            return "LIBERADO"
+        if value in {"NP", "", "-"}:
+            return "NP"
+        if value == "NB":
+            return "NB"
+        return value
+
+    def _should_force_totvs_operational_check(self, status: str) -> bool:
+        return self._normalizar_status_totvs(status) in {"NB", "NP"}
 
     def _should_force_operational_check(self, ad_status: str, vpn_status: str) -> bool:
         return self._normalizar_status_ad(ad_status) == "NP" and self._normalizar_status_vpn(vpn_status) == "NP"

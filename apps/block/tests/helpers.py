@@ -22,6 +22,7 @@ class BlockIntegrationDataMixin:
     email_teste = "teste-infra@teste.local"
     ad_system_name = "AD PRIN"
     vpn_system_name = "VPN"
+    totvs_system_name = "TOTVS"
     _legacy_models = (Colaborador, Ferias, Acesso, SyncLog)
     _created_tables: list[str] = []
 
@@ -122,6 +123,7 @@ class BlockIntegrationDataMixin:
         scenario: str,
         status_ad: str,
         status_vpn: str = "NP",
+        status_totvs: str | None = None,
     ) -> tuple[Colaborador, Ferias]:
         colaborador = self.criar_colaborador_teste()
         datas = self.scenario_dates(scenario)
@@ -140,7 +142,19 @@ class BlockIntegrationDataMixin:
             sistema=self.vpn_system_name,
             status=status_vpn,
         )
+        self.criar_acesso(
+            colaborador,
+            sistema=self.totvs_system_name,
+            status=status_totvs or self._status_totvs_padrao_por_cenario(scenario),
+        )
         return colaborador, ferias
+
+    def _status_totvs_padrao_por_cenario(self, scenario: str) -> str:
+        if scenario in {"saida-hoje", "ferias-atrasado"}:
+            return "BLOQUEADO"
+        if scenario in {"retorno-hoje", "retorno-atrasado"}:
+            return "LIBERADO"
+        return "NP"
 
     def criar_processamento(
         self,

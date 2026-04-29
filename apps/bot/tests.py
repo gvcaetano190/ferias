@@ -80,3 +80,95 @@ class BotCommandParsingTests(SimpleTestCase):
 
         self.assertEqual(service._parse_command("executar block"), "executar_block")
         self.assertEqual(service._parse_command("desblok"), "executar_block")
+
+    def test_parse_command_identifies_totvs_lookup(self) -> None:
+        service = BotService()
+
+        self.assertEqual(service._parse_command("totvs gabriel"), "consultar_totvs")
+        self.assertEqual(service._parse_command("totvs bloquear gabriel"), "bloquear_totvs")
+        self.assertEqual(service._parse_command("totvs desbloquar gabriel"), "desbloquear_totvs")
+
+
+class BotTotvsReplyTests(SimpleTestCase):
+    @mock.patch("apps.bot.services.BotService._reply_text")
+    @mock.patch("apps.bot.queries.BotQueryService.localizar_colaborador")
+    @mock.patch("apps.totvs.services.TotvsIntegrationService")
+    def test_reply_consultar_totvs_by_login(
+        self,
+        totvs_service_cls,
+        localizar_mock,
+        reply_mock,
+    ) -> None:
+        colaborador = mock.Mock(
+            nome="Gabriel Vinicius Caetano",
+            email="gabriel.caetano@printi.com.br",
+            login_ad="gabriel.caetano",
+        )
+        localizar_mock.return_value = colaborador
+        totvs_service = totvs_service_cls.return_value
+        totvs_service.consultar_usuario.return_value = mock.Mock(active=False)
+
+        BotService()._reply_consultar_totvs("destino", "gabriel")
+
+        totvs_service.consultar_usuario.assert_called_once_with("gabriel.caetano")
+        reply_mock.assert_called_once()
+        mensagem = reply_mock.call_args.args[1]
+        self.assertIn("Totvs - Gabriel Vinicius Caetano", mensagem)
+        self.assertIn("Gabriel Vinicius Caetano", mensagem)
+        self.assertIn("STATUS: BLOQUEADO", mensagem)
+
+    @mock.patch("apps.bot.services.BotService._reply_text")
+    @mock.patch("apps.bot.queries.BotQueryService.localizar_colaborador")
+    @mock.patch("apps.totvs.services.TotvsIntegrationService")
+    def test_reply_bloquear_totvs(
+        self,
+        totvs_service_cls,
+        localizar_mock,
+        reply_mock,
+    ) -> None:
+        colaborador = mock.Mock(
+            nome="Gabriel Vinicius Caetano",
+            email="gabriel.caetano@printi.com.br",
+            login_ad="gabriel.caetano",
+        )
+        localizar_mock.return_value = colaborador
+        totvs_service = totvs_service_cls.return_value
+        totvs_service.atualizar_status_usuario.return_value = mock.Mock(active=False)
+
+        BotService()._reply_alterar_totvs("destino", "gabriel", active=False)
+
+        totvs_service.atualizar_status_usuario.assert_called_once_with(
+            identifier="gabriel.caetano",
+            active=False,
+        )
+        mensagem = reply_mock.call_args.args[1]
+        self.assertIn("Totvs - Gabriel Vinicius Caetano", mensagem)
+        self.assertIn("STATUS: BLOQUEADO", mensagem)
+
+    @mock.patch("apps.bot.services.BotService._reply_text")
+    @mock.patch("apps.bot.queries.BotQueryService.localizar_colaborador")
+    @mock.patch("apps.totvs.services.TotvsIntegrationService")
+    def test_reply_desbloquear_totvs(
+        self,
+        totvs_service_cls,
+        localizar_mock,
+        reply_mock,
+    ) -> None:
+        colaborador = mock.Mock(
+            nome="Gabriel Vinicius Caetano",
+            email="gabriel.caetano@printi.com.br",
+            login_ad="gabriel.caetano",
+        )
+        localizar_mock.return_value = colaborador
+        totvs_service = totvs_service_cls.return_value
+        totvs_service.atualizar_status_usuario.return_value = mock.Mock(active=True)
+
+        BotService()._reply_alterar_totvs("destino", "gabriel", active=True)
+
+        totvs_service.atualizar_status_usuario.assert_called_once_with(
+            identifier="gabriel.caetano",
+            active=True,
+        )
+        mensagem = reply_mock.call_args.args[1]
+        self.assertIn("Totvs - Gabriel Vinicius Caetano", mensagem)
+        self.assertIn("STATUS: DESBLOQUEADO", mensagem)

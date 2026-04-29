@@ -12,8 +12,15 @@ from apps.people.models import Acesso, Colaborador, Ferias
 class BlockRepository:
     AD_SYSTEM_NAME = "AD PRIN"
     VPN_SYSTEM_NAME = "VPN"
+    TOTVS_SYSTEM_NAME = "TOTVS"
     BLOCKABLE_AD_STATUSES = {"", "LIBERADO", "NB", "NP"}
     UNLOCKABLE_AD_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
+    BLOCKABLE_TOTVS_STATUSES = {"LIBERADO", "NB"}
+    UNLOCKABLE_TOTVS_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
+    EXECUTABLE_BLOCK_AD_STATUSES = {"", "LIBERADO", "NB"}
+    EXECUTABLE_UNLOCK_AD_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
+    EXECUTABLE_BLOCK_TOTVS_STATUSES = {"LIBERADO"}
+    EXECUTABLE_UNLOCK_TOTVS_STATUSES = {"BLOQUEADO", "BLOQUEADA"}
 
     def _janela_operacional_inicio(self) -> date:
         today = timezone.localdate()
@@ -71,6 +78,32 @@ class BlockRepository:
     def pode_desbloquear(self, colaborador_id: int) -> bool:
         return self.obter_status_ad(colaborador_id) in self.UNLOCKABLE_AD_STATUSES
 
+    def obter_status_totvs(self, colaborador_id: int) -> str:
+        acesso = (
+            Acesso.objects.filter(colaborador_id=colaborador_id, sistema=self.TOTVS_SYSTEM_NAME)
+            .order_by("-updated_at", "-id")
+            .first()
+        )
+        return (getattr(acesso, "status", "") or "").strip().upper()
+
+    def pode_bloquear_totvs(self, colaborador_id: int) -> bool:
+        return self.obter_status_totvs(colaborador_id) in self.BLOCKABLE_TOTVS_STATUSES
+
+    def pode_desbloquear_totvs(self, colaborador_id: int) -> bool:
+        return self.obter_status_totvs(colaborador_id) in self.UNLOCKABLE_TOTVS_STATUSES
+
+    def pode_executar_bloqueio_ad(self, colaborador_id: int) -> bool:
+        return self.obter_status_ad(colaborador_id) in self.EXECUTABLE_BLOCK_AD_STATUSES
+
+    def pode_executar_desbloqueio_ad(self, colaborador_id: int) -> bool:
+        return self.obter_status_ad(colaborador_id) in self.EXECUTABLE_UNLOCK_AD_STATUSES
+
+    def pode_executar_bloqueio_totvs(self, colaborador_id: int) -> bool:
+        return self.obter_status_totvs(colaborador_id) in self.EXECUTABLE_BLOCK_TOTVS_STATUSES
+
+    def pode_executar_desbloqueio_totvs(self, colaborador_id: int) -> bool:
+        return self.obter_status_totvs(colaborador_id) in self.EXECUTABLE_UNLOCK_TOTVS_STATUSES
+
     def obter_configuracao_ativa_block(self) -> BlockConfig | None:
         return BlockConfig.objects.filter(ativo=True).order_by("-updated_at").first()
 
@@ -111,6 +144,7 @@ class BlockRepository:
         colaborador_id: int,
         ad_status: str,
         vpn_status: str | None = None,
+        totvs_status: str | None = None,
     ) -> None:
         # AD e VPN usam a mesma tabela de acessos por sistema.
         Acesso.objects.update_or_create(
@@ -124,6 +158,12 @@ class BlockRepository:
                 sistema=self.VPN_SYSTEM_NAME,
                 defaults={"status": vpn_status},
             )
+        if totvs_status is not None:
+            Acesso.objects.update_or_create(
+                colaborador_id=colaborador_id,
+                sistema=self.TOTVS_SYSTEM_NAME,
+                defaults={"status": totvs_status},
+            )
 
     def salvar_resultado_execucao(
         self,
@@ -136,6 +176,7 @@ class BlockRepository:
         data_retorno=None,
         ad_status: str,
         vpn_status: str,
+        totvs_status: str = "",
         resultado: str,
         mensagem: str,
     ) -> BlockProcessing:
@@ -148,6 +189,7 @@ class BlockRepository:
             data_retorno=data_retorno,
             ad_status=ad_status,
             vpn_status=vpn_status,
+            totvs_status=totvs_status,
             resultado=resultado,
             mensagem=mensagem,
         )
@@ -203,6 +245,7 @@ class BlockRepository:
                     "acao_executada": processing.acao,
                     "status_ad": processing.ad_status,
                     "status_vpn": processing.vpn_status,
+                    "status_totvs": processing.totvs_status,
                     "resultado": processing.resultado,
                     "mensagem": processing.mensagem,
                     "executado_em": processing.executado_em,
@@ -220,6 +263,7 @@ class BlockRepository:
                 processing.acao,
                 processing.ad_status,
                 processing.vpn_status,
+                processing.totvs_status,
                 processing.resultado,
                 processing.mensagem,
                 timezone.localtime(processing.executado_em).date(),

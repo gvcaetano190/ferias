@@ -62,6 +62,15 @@ MENSAGEM_AJUDA = (
     "👮 *Buscar Gestor*\n"
     "_(Localiza quem é o chefe de alguém e traz o e-mail dele)_\n"
     "→ Digite: *gestor gabriel* ou *gestor gabriel@email.com*\n\n"
+    "🧾 *Consultar Totvs*\n"
+    "_(Consulta o status real da pessoa no TOTVS por nome, e-mail ou login)_\n"
+    "→ Digite: *totvs gabriel.caetano* ou *totvs gabriel@email.com*\n\n"
+    "🔒 *Bloquear no Totvs*\n"
+    "_(Bloqueia a pessoa no TOTVS por nome, e-mail ou login)_\n"
+    "→ Digite: *totvs bloquear gabriel.caetano*\n\n"
+    "🔓 *Desbloquear no Totvs*\n"
+    "_(Desbloqueia a pessoa no TOTVS por nome, e-mail ou login)_\n"
+    "→ Digite: *totvs desbloquear gabriel.caetano*\n\n"
     "🔮 *Previsão de Ações do Bot*\n"
     "_(Mostra exatamente quem eu vou bloquear/desbloquear hoje em tempo real)_\n"
     "→ Digite: *previsao*\n\n"
@@ -151,6 +160,19 @@ class BotService:
         if text.startswith("gestor "):
             return "buscar_gestor"
 
+        if text.startswith("totvs bloquear "):
+            return "bloquear_totvs"
+
+        if (
+            text.startswith("totvs desbloquear ")
+            or text.startswith("totvs desbloquear ")
+            or text.startswith("totvs desbloquar ")
+        ):
+            return "desbloquear_totvs"
+
+        if text.startswith("totvs "):
+            return "consultar_totvs"
+
         if any(word in text for word in ["previsao", "previsão", "previsão de hoje", "🔮 previsão"]):
             return "previsao_hoje"
 
@@ -225,6 +247,19 @@ class BotService:
         elif command == "buscar_gestor":
             termo = original_text.lower().replace("gestor ", "", 1).strip()
             self._reply_buscar_gestor(sender, termo)
+        elif command == "bloquear_totvs":
+            termo = original_text[len("totvs bloquear "):].strip()
+            self._reply_alterar_totvs(sender, termo, active=False)
+        elif command == "desbloquear_totvs":
+            termo = original_text
+            for prefixo in ("totvs desbloquear ", "totvs desbloquear ", "totvs desbloquar "):
+                if termo.startswith(prefixo):
+                    termo = termo[len(prefixo):].strip()
+                    break
+            self._reply_alterar_totvs(sender, termo, active=True)
+        elif command == "consultar_totvs":
+            termo = original_text[6:].strip()
+            self._reply_consultar_totvs(sender, termo)
         elif command == "previsao_hoje":
             self._reply_previsao_hoje(sender)
         elif command == "agenda":
@@ -304,6 +339,72 @@ class BotService:
             f"📧 *Email do Gestor:* {dados['gestor_email']}"
         )
         self._reply_text(sender, msg)
+
+    def _reply_consultar_totvs(self, sender: str, termo: str) -> None:
+        from apps.bot.queries import BotQueryService
+        from apps.totvs.services import TotvsIntegrationService
+        from integrations.totvs.client import TotvsClientError
+
+        termo = (termo or "").strip()
+        if not termo:
+            self._reply_text(sender, "Informe um nome, e-mail ou login depois de 'totvs'.")
+            return
+
+        queries = BotQueryService()
+        colaborador = queries.localizar_colaborador(termo)
+        if not colaborador:
+            self._reply_text(sender, f"Nao encontrei colaborador para '{termo}'.")
+            return
+
+        service = TotvsIntegrationService()
+        try:
+            resolved = service.consultar_usuario(colaborador.login_ad or colaborador.email or termo)
+            status = "DESBLOQUEADO" if resolved.active else "BLOQUEADO"
+        except TotvsClientError as exc:
+            if exc.status_code == 404:
+                status = "NAO ENCONTRADO"
+            else:
+                self._reply_text(sender, f"Falha ao consultar TOTVS para {colaborador.nome}: {exc}")
+                return
+
+        msg = (
+            f"🧾 Totvs - {colaborador.nome}\n"
+            f"STATUS: {status}"
+        )
+        self._reply_text(sender, msg)
+
+    def _reply_alterar_totvs(self, sender: str, termo: str, *, active: bool) -> None:
+        from apps.bot.queries import BotQueryService
+        from apps.totvs.services import TotvsIntegrationService
+        from integrations.totvs.client import TotvsClientError
+
+        termo = (termo or "").strip()
+        if not termo:
+            self._reply_text(sender, "Informe um nome, e-mail ou login depois do comando do TOTVS.")
+            return
+
+        queries = BotQueryService()
+        colaborador = queries.localizar_colaborador(termo)
+        if not colaborador:
+            self._reply_text(sender, f"Nao encontrei colaborador para '{termo}'.")
+            return
+
+        service = TotvsIntegrationService()
+        try:
+            resolved = service.atualizar_status_usuario(
+                identifier=colaborador.login_ad or colaborador.email or termo,
+                active=active,
+            )
+            status = "DESBLOQUEADO" if resolved.active else "BLOQUEADO"
+        except TotvsClientError as exc:
+            if exc.status_code == 404:
+                status = "NAO ENCONTRADO"
+                self._reply_text(sender, f"🧾 Totvs - {colaborador.nome}\nSTATUS: {status}")
+                return
+            self._reply_text(sender, f"Falha ao alterar TOTVS para {colaborador.nome}: {exc}")
+            return
+
+        self._reply_text(sender, f"🧾 Totvs - {colaborador.nome}\nSTATUS: {status}")
 
     def _reply_previsao_hoje(self, sender: str) -> None:
         try:
