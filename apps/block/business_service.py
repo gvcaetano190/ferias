@@ -19,6 +19,8 @@ from integrations.ad.executor import (
     desbloquear_usuario_ad,
     desbloquear_usuarios_ad,
 )
+from apps.shared.services.sheets_writeback import GoogleSheetsWritebackService
+
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,7 @@ class BlockBusinessService:
         self.preview_service = BlockPreviewService()
         self.notification_service = NotificationService()
         self.totvs_service = TotvsIntegrationService()
+        self.writeback_service = GoogleSheetsWritebackService()
 
     def processar_verificacao_block(self, *, require_operational_queue: bool = False, notify: bool = True) -> dict:
         config = self.repository.obter_configuracao_ativa_block()
@@ -507,67 +510,6 @@ class BlockBusinessService:
             acao="BLOQUEIO",
             result=result,
         )
-        return
-        candidatos_para_executar = []
-        for ferias in ferias_list:
-            collaborator = ferias.colaborador
-            if not self.repository.pode_bloquear(collaborator.id):
-                self._registrar_ignorado(ferias, "Bloqueio ignorado: status atual não exige bloqueio.", acao="BLOQUEIO")
-                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao="BLOQUEIO")
-                continue
-                
-            if self.repository.ja_processado_hoje(collaborator.id, "BLOQUEIO"):
-                self._registrar_ignorado(ferias, "Bloqueio já executado com sucesso hoje.", acao="BLOQUEIO")
-                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao="BLOQUEIO")
-                continue
-                
-            if dry_run:
-                self._registrar_ignorado(ferias, "Simulacao: Execução de bloqueio em lote.", acao="BLOQUEIO")
-                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao="BLOQUEIO")
-                continue
-                
-            candidatos_para_executar.append(ferias)
-            
-        if not candidatos_para_executar:
-            return
-            
-        usuarios_ad = [f.colaborador.login_ad for f in candidatos_para_executar if f.colaborador.login_ad]
-        if not usuarios_ad:
-            return
-            
-        resultados_ad = bloquear_usuarios_ad(usuarios_ad)
-        resultados_lookup = {r.get("usuario_ad", "").strip().lower(): r for r in resultados_ad}
-        
-        for ferias in candidatos_para_executar:
-            collaborator = ferias.colaborador
-            ad_result = resultados_lookup.get((collaborator.login_ad or "").strip().lower(), {})
-            if not ad_result:
-                ad_result = self._error_consulta_operacional(collaborator.login_ad or "", "Não retornou no lote.")
-                
-            ad_status = ad_result.get("ad_status", "ERRO")
-            vpn_status = ad_result.get("vpn_status", "NP")
-            resultado_final = "SUCESSO" if ad_result.get("success") else "ERRO"
-            
-            if resultado_final == "SUCESSO":
-                self.repository.atualizar_status_block(
-                    colaborador_id=collaborator.id,
-                    ad_status=ad_status,
-                    vpn_status=vpn_status,
-                )
-                
-            self.repository.salvar_resultado_execucao(
-                colaborador_id=collaborator.id,
-                usuario_ad=ad_result.get("usuario_ad") or (collaborator.login_ad or ""),
-                email=collaborator.email or "",
-                acao="BLOQUEIO",
-                data_saida=ferias.data_saida,
-                data_retorno=ferias.data_retorno,
-                ad_status=ad_status,
-                vpn_status=vpn_status,
-                resultado=resultado_final,
-                mensagem=ad_result.get("message", ""),
-            )
-            self._acumular_resultado(result, {"resultado": resultado_final}, acao="BLOQUEIO")
 
     def _processar_desbloqueios_em_lote(self, ferias_list: list, *, result: BlockServiceResult, dry_run: bool) -> None:
         candidatos_para_executar = self._preparar_candidatos_execucao(
@@ -585,67 +527,6 @@ class BlockBusinessService:
             acao="DESBLOQUEIO",
             result=result,
         )
-        return
-        candidatos_para_executar = []
-        for ferias in ferias_list:
-            collaborator = ferias.colaborador
-            if not self.repository.pode_desbloquear(collaborator.id):
-                self._registrar_ignorado(ferias, "Desbloqueio ignorado: status atual não exige desbloqueio.", acao="DESBLOQUEIO")
-                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao="DESBLOQUEIO")
-                continue
-                
-            if self.repository.ja_processado_hoje(collaborator.id, "DESBLOQUEIO"):
-                self._registrar_ignorado(ferias, "Desbloqueio já executado com sucesso hoje.", acao="DESBLOQUEIO")
-                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao="DESBLOQUEIO")
-                continue
-                
-            if dry_run:
-                self._registrar_ignorado(ferias, "Simulacao: Execução de desbloqueio em lote.", acao="DESBLOQUEIO")
-                self._acumular_resultado(result, {"resultado": "IGNORADO"}, acao="DESBLOQUEIO")
-                continue
-                
-            candidatos_para_executar.append(ferias)
-            
-        if not candidatos_para_executar:
-            return
-            
-        usuarios_ad = [f.colaborador.login_ad for f in candidatos_para_executar if f.colaborador.login_ad]
-        if not usuarios_ad:
-            return
-            
-        resultados_ad = desbloquear_usuarios_ad(usuarios_ad)
-        resultados_lookup = {r.get("usuario_ad", "").strip().lower(): r for r in resultados_ad}
-        
-        for ferias in candidatos_para_executar:
-            collaborator = ferias.colaborador
-            ad_result = resultados_lookup.get((collaborator.login_ad or "").strip().lower(), {})
-            if not ad_result:
-                ad_result = self._error_consulta_operacional(collaborator.login_ad or "", "Não retornou no lote.")
-                
-            ad_status = ad_result.get("ad_status", "ERRO")
-            vpn_status = ad_result.get("vpn_status", "NP")
-            resultado_final = "SUCESSO" if ad_result.get("success") else "ERRO"
-            
-            if resultado_final == "SUCESSO":
-                self.repository.atualizar_status_block(
-                    colaborador_id=collaborator.id,
-                    ad_status=ad_status,
-                    vpn_status=vpn_status,
-                )
-                
-            self.repository.salvar_resultado_execucao(
-                colaborador_id=collaborator.id,
-                usuario_ad=ad_result.get("usuario_ad") or (collaborator.login_ad or ""),
-                email=collaborator.email or "",
-                acao="DESBLOQUEIO",
-                data_saida=ferias.data_saida,
-                data_retorno=ferias.data_retorno,
-                ad_status=ad_status,
-                vpn_status=vpn_status,
-                resultado=resultado_final,
-                mensagem=ad_result.get("message", ""),
-            )
-            self._acumular_resultado(result, {"resultado": resultado_final}, acao="DESBLOQUEIO")
 
     def _preparar_candidatos_execucao(
         self,
@@ -804,6 +685,24 @@ class BlockBusinessService:
                 mensagem=" | ".join([mensagem for mensagem in mensagens if mensagem]),
             )
             self._acumular_resultado(result, {"resultado": resultado_final}, acao=acao)
+            
+            # --- Start Writeback Google Sheets ---
+            if resultado_final == "SUCESSO":
+                atualizacoes = {}
+                if item["executar_ad"] and ad_success:
+                    atualizacoes["AD PRIN"] = ad_status_final
+                    atualizacoes["VPN"] = vpn_status_final
+                if item["executar_totvs"] and totvs_success:
+                    atualizacoes["TOTVS"] = totvs_status_final
+                
+                if atualizacoes:
+                    self.writeback_service.atualizar_status(
+                        nome_colaborador=collaborator.nome,
+                        atualizacoes=atualizacoes,
+                        mes_ref=ferias.mes_ref,
+                        ano_ref=ferias.ano_ref
+                    )
+            # --- End Writeback Google Sheets ---
 
     def _registrar_ignorado(self, ferias, mensagem: str, *, acao: str) -> None:
         collaborator = ferias.colaborador
@@ -982,6 +881,22 @@ class BlockBusinessService:
                 vpn_status_real=vpn_status_real,
                 vpn_changed=vpn_changed,
             )
+            
+            mes = None
+            ano = None
+            if candidate.get("data_saida"):
+                mes = candidate["data_saida"].month
+                ano = candidate["data_saida"].year
+                
+            self.writeback_service.atualizar_status(
+                nome_colaborador=candidate["colaborador_nome"],
+                atualizacoes={
+                    "AD PRIN": ad_status_banco_depois,
+                    "VPN": vpn_status_banco_depois,
+                },
+                mes_ref=mes,
+                ano_ref=ano
+            )
 
         desired_ad = "BLOQUEADO" if acao_inicial == "BLOQUEAR" else "LIBERADO"
         ad_needs_action = ad_real_normalizado != desired_ad
@@ -1006,11 +921,13 @@ class BlockBusinessService:
         totvs_real_normalizado = self._normalizar_status_totvs(totvs_real.get("totvs_status") or "")
         totvs_status_banco_depois = totvs_status_banco
         totvs_status_banco_normalizado = self._normalizar_status_totvs(totvs_status_banco)
+        totvs_changed = False
         if not totvs_found:
             totvs_real_normalizado = "NP"
             candidate["totvs_status_real"] = "NP"
             if totvs_status_banco_normalizado and totvs_status_banco_normalizado != "NP":
                 totvs_status_banco_depois = "NP"
+                totvs_changed = True
                 self.repository.atualizar_status_block(
                     colaborador_id=colaborador_id,
                     ad_status=ad_status_banco_depois,
@@ -1021,6 +938,7 @@ class BlockBusinessService:
         else:
             totvs_status_banco_depois = totvs_real.get("totvs_status", totvs_status_banco)
             if totvs_status_banco_normalizado and totvs_status_banco_normalizado != totvs_real_normalizado:
+                totvs_changed = True
                 self.repository.atualizar_status_block(
                     colaborador_id=colaborador_id,
                     ad_status=ad_status_banco_depois,
@@ -1030,6 +948,20 @@ class BlockBusinessService:
                 sync_messages.append(f"TOTVS sincronizado para {totvs_status_banco_depois}.")
             elif not totvs_status_banco_normalizado:
                 totvs_status_banco_depois = totvs_status_banco
+                
+        if totvs_changed:
+            mes = None
+            ano = None
+            if candidate.get("data_saida"):
+                mes = candidate["data_saida"].month
+                ano = candidate["data_saida"].year
+                
+            self.writeback_service.atualizar_status(
+                nome_colaborador=candidate["colaborador_nome"],
+                atualizacoes={"TOTVS": totvs_status_banco_depois},
+                mes_ref=mes,
+                ano_ref=ano
+            )
 
         desired_totvs = "BLOQUEADO" if acao_inicial == "BLOQUEAR" else "LIBERADO"
         totvs_needs_action = totvs_found and totvs_real_normalizado != desired_totvs
@@ -1402,6 +1334,14 @@ class BlockBusinessService:
                 colaborador_id=collaborator.id,
                 ad_status=ad_status,
                 vpn_status=vpn_status,
+            )
+            mes = data_saida.month if data_saida else None
+            ano = data_saida.year if data_saida else None
+            self.writeback_service.atualizar_status(
+                nome_colaborador=collaborator.nome,
+                atualizacoes={"AD PRIN": ad_status, "VPN": vpn_status},
+                mes_ref=mes,
+                ano_ref=ano
             )
 
         self.repository.salvar_resultado_execucao(

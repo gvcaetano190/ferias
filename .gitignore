@@ -11,3 +11,4 @@ staticfiles/
 dist/
 build/
 *.spec
+credenciais.json
