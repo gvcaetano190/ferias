@@ -1,320 +1,310 @@
-# Resumo da mudanca na sincronizacao da planilha
+# Resumo da implantacao TOTVS e integracao com o bot
 
-## Contexto
+## Objetivo
 
-O sistema possui um fluxo em que:
+Implantar a integracao com o TOTVS para:
 
-1. A planilha e sincronizada.
-2. Os usuarios e acessos sao gravados no banco.
-3. O modulo de block gera uma pre-lista de bloqueio/desbloqueio.
-4. O check operacional consulta o estado real no AD.
-5. A lista final e reduzida para somente os casos que ainda exigem acao.
+1. Consultar usuario por login.
+2. Bloquear e desbloquear usuario via API.
+3. Sincronizar o status real do TOTVS no banco.
+4. Integrar o TOTVS ao fluxo do modulo `block`.
+5. Expor consulta, bloqueio e desbloqueio do TOTVS no bot/WhatsApp.
 
-O problema aparecia quando a planilha era sincronizada novamente depois desse check.
+---
 
-## Problema original
+## Regras fechadas
 
-A sincronizacao anterior apagava completamente os dados operacionais de `acessos` e `ferias` e recriava tudo com base na planilha.
+### API TOTVS
 
-Isso causava dois efeitos ruins:
+- Consulta por `GET /rest/api/framework/v1/users/{login ou id}`.
+- Atualizacao por `PUT /rest/api/framework/v1/users/{id}`.
+- Header obrigatorio: `TenantId: 01,01`.
+- Autenticacao: `Basic Auth`.
 
-1. O sistema perdia o estado operacional real que havia sido ajustado pelo check operacional.
-2. Usuarios que ja tinham sido saneados voltavam para a pre-lista sem necessidade.
+### Seguranca
 
-Exemplo real do problema:
+- Usuario e senha do TOTVS nao ficam em texto puro no banco.
+- As credenciais ficam no cofre do sistema via `keyring`.
+- O admin guarda apenas a configuracao e a referencia da credencial.
 
-1. A pre-lista trazia 30 nomes.
-2. O check operacional reduzia isso para 3 nomes.
-3. Uma nova sincronizacao da mesma planilha recriava os 30 casos novamente.
-4. O time precisava repetir o check operacional em cima dos mesmos usuarios.
+### Regra funcional
 
-No caso do colaborador `gabriel.caetano`, isso era ainda mais visivel:
+- Se o usuario existir no TOTVS, o sistema usa o status real.
+- Se a consulta retornar `404`, o status local do TOTVS vira `NP`.
+- `NP` nao deve inflar a pre-lista antiga.
+- O TOTVS deve atuar daqui para frente apenas no lote corrente.
+- O check operacional consulta primeiro o AD e depois o TOTVS.
+- A execucao final age apenas em quem realmente ainda precisa de acao.
 
-1. A planilha vinha sem o campo de bloqueado preenchido.
-2. O sistema interpretava esse valor como pendencia (`NB` ou `NP`).
-3. O check operacional consultava o AD e corrigia o status para `BLOQUEADO`.
-4. Na sincronizacao seguinte, o valor cru da planilha sobrescrevia esse status corrigido.
-5. O usuario reaparecia na pre-lista como se ainda estivesse pendente.
+---
 
-## Causa raiz
+## O que foi implantado
 
-A causa raiz estava no comportamento destrutivo da sincronizacao:
+## 1. Novo modulo TOTVS
 
-- a rotina apagava `Acesso.objects.all()` e `Ferias.objects.all()`
-- depois recriava os registros a partir do arquivo importado
+Foi criado um modulo dedicado para a integracao com o TOTVS.
 
-Com isso, a sincronizacao tratava a planilha como verdade absoluta, mesmo quando o sistema ja tinha uma verdade operacional mais confiavel vinda do AD.
+### O que ele faz
 
-## Objetivo da mudanca
+- Guarda configuracao da integracao no admin.
+- Guarda usuario/senha no cofre do Windows.
+- Consulta usuario no TOTVS.
+- Atualiza `active=true/false`.
+- Sincroniza status real no banco local.
+- Oferece comandos de teste e sincronizacao.
 
-Transformar a sincronizacao em um processo incremental e idempotente, preservando o estado operacional util para o modulo de block.
+### Arquivos criados ou alterados
 
-Na pratica, o objetivo foi:
+- [apps/totvs/apps.py](/C:/ferias/apps/totvs/apps.py:1)
+- [apps/totvs/models.py](/C:/ferias/apps/totvs/models.py:1)
+- [apps/totvs/admin.py](/C:/ferias/apps/totvs/admin.py:1)
+- [apps/totvs/forms.py](/C:/ferias/apps/totvs/forms.py:1)
+- [apps/totvs/credentials.py](/C:/ferias/apps/totvs/credentials.py:1)
+- [apps/totvs/services.py](/C:/ferias/apps/totvs/services.py:1)
+- [apps/totvs/tests/test_client.py](/C:/ferias/apps/totvs/tests/test_client.py:1)
+- [apps/totvs/migrations/0001_initial.py](/C:/ferias/apps/totvs/migrations/0001_initial.py:1)
+- [apps/totvs/management/commands/test_totvs_api.py](/C:/ferias/apps/totvs/management/commands/test_totvs_api.py:1)
+- [apps/totvs/management/commands/set_totvs_credentials.py](/C:/ferias/apps/totvs/management/commands/set_totvs_credentials.py:1)
+- [apps/totvs/management/commands/sync_totvs_status.py](/C:/ferias/apps/totvs/management/commands/sync_totvs_status.py:1)
+- [integrations/totvs/client.py](/C:/ferias/integrations/totvs/client.py:1)
+- [project/settings.py](/C:/ferias/project/settings.py:1)
 
-- evitar que a sincronizacao "desaprenda" o que o check operacional acabou de corrigir
-- impedir o retorno desnecessario de usuarios para a pre-lista
-- manter o fluxo mais estavel em sincronizacoes repetidas da mesma planilha
+### Validacoes feitas
 
-## O que foi feito
+- `GET` funcionando.
+- `PUT` funcionando.
+- `TenantId` confirmado.
+- Credencial salva no cofre confirmada.
 
-### 1. Sincronizacao deixou de ser destrutiva
+---
 
-Antes:
+## 2. Correcao importante no payload do PUT
 
-- a rotina apagava todos os acessos e ferias
-- depois recriava tudo
+Durante os testes apareceu um caso real em que o usuario existia no TOTVS, mas o `GET` devolvia o e-mail primario vazio:
 
-Agora:
+- usuario: `pedro.furtado`
+- erro no PUT: `E-mail primário não enviado`
 
-- a rotina faz reconciliacao por chave
-- atualiza o que existe
-- cria o que nao existe
-- remove apenas o que realmente nao veio mais na planilha
+Foi corrigido o cliente do TOTVS para:
 
-Arquivos alterados:
+- reutilizar o payload do `GET`
+- e preencher `emails[0].value` com o e-mail do banco local quando o TOTVS devolver o e-mail vazio
 
-- [apps/shared/services/sync.py](/C:/ferias/apps/shared/services/sync.py:38)
+### Arquivos alterados
 
-### 2. Foi criada uma reconciliacao incremental
+- [integrations/totvs/client.py](/C:/ferias/integrations/totvs/client.py:1)
+- [apps/totvs/services.py](/C:/ferias/apps/totvs/services.py:1)
+- [apps/totvs/tests/test_client.py](/C:/ferias/apps/totvs/tests/test_client.py:1)
 
-Durante a sync, o sistema agora guarda as chaves vistas:
+### Resultado
 
-- ferias: `colaborador_id + data_saida + data_retorno + mes + ano`
-- acessos: `colaborador_id + sistema`
+- `pedro.furtado` passou a aceitar `PUT` normalmente.
 
-Ao final:
+---
 
-- registros vistos sao mantidos
-- registros nao vistos sao removidos
+## 3. Integracao do TOTVS com o fluxo do block
 
-Isso substitui o antigo comportamento de apagar tudo.
+O TOTVS foi acoplado ao fluxo completo do modulo `block`.
 
-Trecho principal:
+### O que mudou
 
-- [apps/shared/services/sync.py](/C:/ferias/apps/shared/services/sync.py:135)
+- A pre-lista agora mostra coluna de status TOTVS.
+- O check operacional consulta AD e depois TOTVS.
+- A fila final considera AD e TOTVS.
+- O historico de processamentos passa a guardar `status_totvs`.
+- A verificacao operacional passa a guardar:
+  - `totvs_status_banco_antes`
+  - `totvs_status_real`
+  - `totvs_status_banco_depois`
 
-### 3. O status operacional de AD/VPN passou a ser preservado
+### Regra final adotada
 
-Foi adicionada uma regra para os sistemas operacionais principais:
+- O TOTVS nao reabre fila antiga sozinho.
+- O TOTVS nao infla a pre-lista so porque esta `NP`.
+- O TOTVS atua apenas sobre o lote corrente.
+- O check sincroniza o banco quando encontra divergencia.
 
-- `AD PRIN`
-- `VPN`
+### Arquivos alterados
 
-Quando a planilha vem com um valor fraco ou ambiguo, como:
+- [apps/block/models.py](/C:/ferias/apps/block/models.py:1)
+- [apps/block/repositories.py](/C:/ferias/apps/block/repositories.py:1)
+- [apps/block/preview_service.py](/C:/ferias/apps/block/preview_service.py:1)
+- [apps/block/business_service.py](/C:/ferias/apps/block/business_service.py:1)
+- [apps/block/migrations/0006_blockprocessing_totvs_status_and_more.py](/C:/ferias/apps/block/migrations/0006_blockprocessing_totvs_status_and_more.py:1)
+- [templates/block/index.html](/C:/ferias/templates/block/index.html:1)
+- [templates/block/partials/preview_modal.html](/C:/ferias/templates/block/partials/preview_modal.html:1)
+- [templates/block/partials/verification_modal.html](/C:/ferias/templates/block/partials/verification_modal.html:1)
+- [apps/block/tests/helpers.py](/C:/ferias/apps/block/tests/helpers.py:1)
+- [apps/block/tests/test_block_business_rules.py](/C:/ferias/apps/block/tests/test_block_business_rules.py:1)
 
-- vazio
-- `NB`
-- `NP`
-- `-`
+### Ajuste funcional posterior
 
-o sistema passa a verificar se ja existe um status operacional mais confiavel vindo de:
+Depois da primeira integracao, a pre-lista ficou inflada porque o TOTVS estava puxando casos antigos com `NP/NB`.
 
-- ultimo `BlockProcessing` com resultado `SUCESSO` ou `SINCRONIZADO`
-- ou do acesso atual ja salvo no banco
+A regra foi corrigida para:
 
-Se esse status confiavel existir, ele e preservado em vez de ser sobrescrito pelo valor fraco da planilha.
+- deixar a pre-lista mostrar apenas o lote real do momento
+- deixar o TOTVS atuar dentro do `check operacional` e da `execucao final`
 
-Trechos principais:
+---
 
-- [apps/shared/services/sync.py](/C:/ferias/apps/shared/services/sync.py:159)
-- [apps/shared/services/sync.py](/C:/ferias/apps/shared/services/sync.py:181)
+## 4. Ajustes de front
 
-### 4. A base de testes foi preparada para cobrir o fluxo completo
+Foram feitos dois movimentos no front do modulo `block`:
 
-Foi necessario incluir a tabela de `sync_logs` no helper de testes para permitir a execucao do fluxo de sincronizacao dentro dos testes de integracao.
+1. Inclusao inicial de explicacao visual da esteira AD + TOTVS.
+2. Remocao posterior dessa area porque o layout ficou poluido e o usuario nao gostou.
 
-Arquivo alterado:
+O estado final ficou:
 
-- [apps/block/tests/helpers.py](/C:/ferias/apps/block/tests/helpers.py:19)
+- tela mais limpa
+- historico com coluna de `Status TOTVS`
+- modais de preview e verificacao mostrando TOTVS
+- secao explicativa removida da home do `block`
 
-### 5. Foi criado um teste de regressao para o cenario reportado
+### Arquivos alterados
 
-Foi criado um teste automatizado que simula exatamente o comportamento descrito:
+- [templates/block/index.html](/C:/ferias/templates/block/index.html:1)
+- [templates/block/partials/preview_modal.html](/C:/ferias/templates/block/partials/preview_modal.html:1)
+- [templates/block/partials/verification_modal.html](/C:/ferias/templates/block/partials/verification_modal.html:1)
 
-1. sincroniza uma planilha com `AD PRIN = NB`
-2. a pre-lista traz o usuario para bloqueio
-3. o check operacional consulta o AD e descobre que ele ja esta `BLOQUEADO`
-4. o sistema sincroniza esse status real no banco
-5. uma nova sincronizacao da mesma planilha acontece
-6. o usuario nao volta para a pre-lista
+---
 
-Arquivo:
+## 5. Integracao do TOTVS com o bot/WhatsApp
 
-- [apps/block/tests/test_block_business_rules.py](/C:/ferias/apps/block/tests/test_block_business_rules.py:486)
+Foi adicionado suporte no bot para consultar, bloquear e desbloquear usuarios no TOTVS.
 
-## Como a regra ficou depois da mudanca
+### Comandos implantados
 
-### Antes
+- `totvs nome`
+- `totvs email`
+- `totvs login`
+- `totvs bloquear nome/email/login`
+- `totvs desbloquear nome/email/login`
+- `totvs desbloquar nome/email/login`
 
-- a planilha sempre sobrescrevia o banco
-- status corrigido pelo check operacional era perdido
-- usuarios reapareciam na fila
-- usuarios ja tratados ainda podiam continuar visiveis na pre-lista como `IGNORAR`
+### Resposta curta adotada
 
-### Agora
+Consulta:
 
-- a planilha continua sendo importada
-- a sync atualiza os dados de forma incremental
-- para `AD PRIN` e `VPN`, um status operacional confiavel e preservado quando a planilha vier com informacao fraca
-- a pre-lista deixa de reencolar automaticamente quem ja foi saneado
-- a pre-lista passa a mostrar somente quem ainda precisa de acao real
-- usuarios ja ajustados no check operacional deixam de aparecer como `IGNORAR` e somem da pre-lista
+```text
+🧾 Totvs - NOME DA PESSOA
+STATUS: BLOQUEADO
+```
 
-## Ajuste adicional na pre-lista
+ou
 
-Depois da primeira correcao, foi identificado um ajuste importante de comportamento:
+```text
+🧾 Totvs - NOME DA PESSOA
+STATUS: DESBLOQUEADO
+```
 
-- se o check operacional ja saneou o usuario no banco
-- essa pessoa nao deve continuar aparecendo na pre-lista
-- mesmo que antes ela aparecesse apenas como `IGNORAR`
+ou
 
-### Regra funcional esperada
+```text
+🧾 Totvs - NOME DA PESSOA
+STATUS: NAO ENCONTRADO
+```
 
-A pre-lista deve ser uma fila de pendencias reais.
+### Como a busca funciona
 
-Fluxo esperado:
+- o bot primeiro localiza o colaborador no banco
+- aceita:
+  - nome
+  - e-mail
+  - login
+- depois usa preferencialmente o `login_ad` para consultar ou atualizar no TOTVS
 
-1. o usuario aparece na pre-lista porque ainda precisa de ajuste
-2. o check operacional consulta o estado real
-3. se o check corrigir ou confirmar o status no banco, esse usuario deixa de ser pendencia
-4. a lista final fica apenas com quem ainda exige acao
-5. a pre-lista nao deve mais exibir quem ja foi resolvido
+### Arquivos alterados
 
-### O que foi alterado nesse ajuste
+- [apps/bot/services.py](/C:/ferias/apps/bot/services.py:1)
+- [apps/bot/queries.py](/C:/ferias/apps/bot/queries.py:1)
+- [apps/bot/tests.py](/C:/ferias/apps/bot/tests.py:1)
 
-Foi alterado o comportamento da previsualizacao do modulo block:
+### Ajustes no menu do bot
 
-- antes, usuarios ja processados no dia podiam continuar aparecendo na pre-lista com acao `IGNORAR`
-- agora, esses usuarios retornam `None` na montagem da previa e nao sao mais exibidos
+O menu de ajuda tambem foi atualizado para incluir:
 
-Arquivo ajustado:
+- consultar TOTVS
+- bloquear no TOTVS
+- desbloquear no TOTVS
 
-- [apps/block/preview_service.py](/C:/ferias/apps/block/preview_service.py:52)
+---
 
-### Testes ajustados
+## 6. Arquivos alterados nesta entrega
 
-Os testes foram atualizados para refletir a nova regra:
+### Modulo TOTVS
 
-- a previa nao deve mais mostrar linhas `IGNORAR` para usuarios ja saneados
-- a lista deve ficar vazia quando todos os casos daquele contexto ja tiverem sido tratados
+- [apps/totvs/apps.py](/C:/ferias/apps/totvs/apps.py:1)
+- [apps/totvs/models.py](/C:/ferias/apps/totvs/models.py:1)
+- [apps/totvs/admin.py](/C:/ferias/apps/totvs/admin.py:1)
+- [apps/totvs/forms.py](/C:/ferias/apps/totvs/forms.py:1)
+- [apps/totvs/credentials.py](/C:/ferias/apps/totvs/credentials.py:1)
+- [apps/totvs/services.py](/C:/ferias/apps/totvs/services.py:1)
+- [apps/totvs/tests/test_client.py](/C:/ferias/apps/totvs/tests/test_client.py:1)
+- [apps/totvs/migrations/0001_initial.py](/C:/ferias/apps/totvs/migrations/0001_initial.py:1)
+- [apps/totvs/management/commands/test_totvs_api.py](/C:/ferias/apps/totvs/management/commands/test_totvs_api.py:1)
+- [apps/totvs/management/commands/set_totvs_credentials.py](/C:/ferias/apps/totvs/management/commands/set_totvs_credentials.py:1)
+- [apps/totvs/management/commands/sync_totvs_status.py](/C:/ferias/apps/totvs/management/commands/sync_totvs_status.py:1)
+- [integrations/totvs/client.py](/C:/ferias/integrations/totvs/client.py:1)
 
-Arquivo de teste:
+### Modulo block
 
-- [apps/block/tests/test_block_business_rules.py](/C:/ferias/apps/block/tests/test_block_business_rules.py:316)
+- [apps/block/models.py](/C:/ferias/apps/block/models.py:1)
+- [apps/block/repositories.py](/C:/ferias/apps/block/repositories.py:1)
+- [apps/block/preview_service.py](/C:/ferias/apps/block/preview_service.py:1)
+- [apps/block/business_service.py](/C:/ferias/apps/block/business_service.py:1)
+- [apps/block/migrations/0006_blockprocessing_totvs_status_and_more.py](/C:/ferias/apps/block/migrations/0006_blockprocessing_totvs_status_and_more.py:1)
+- [apps/block/tests/helpers.py](/C:/ferias/apps/block/tests/helpers.py:1)
+- [apps/block/tests/test_block_business_rules.py](/C:/ferias/apps/block/tests/test_block_business_rules.py:1)
 
-### Validacao desse ajuste
+### Front block
 
-Foi executada novamente a suite do block:
+- [templates/block/index.html](/C:/ferias/templates/block/index.html:1)
+- [templates/block/partials/preview_modal.html](/C:/ferias/templates/block/partials/preview_modal.html:1)
+- [templates/block/partials/verification_modal.html](/C:/ferias/templates/block/partials/verification_modal.html:1)
 
-- `.venv\\Scripts\\python.exe manage.py test apps.block.tests.test_block_business_rules`
+### Bot
 
-Resultado:
+- [apps/bot/services.py](/C:/ferias/apps/bot/services.py:1)
+- [apps/bot/queries.py](/C:/ferias/apps/bot/queries.py:1)
+- [apps/bot/tests.py](/C:/ferias/apps/bot/tests.py:1)
 
-- 22 testes passando
+### Projeto
 
-## Validacao executada
+- [project/settings.py](/C:/ferias/project/settings.py:1)
 
-Foram executados os seguintes testes:
+### Banco local de desenvolvimento
 
-1. Teste especifico do cenario corrigido
-   - `.venv\\Scripts\\python.exe manage.py test apps.block.tests.test_block_business_rules.BlockBusinessRulesTests.test_sync_repetida_nao_recria_prelista_quando_check_operacional_ja_sincronizou_status_real`
-2. Suite completa do bloco de regras de negocio do block
-   - `.venv\\Scripts\\python.exe manage.py test apps.block.tests.test_block_business_rules`
+- `data/controle_ferias_django.sqlite`
 
-Resultado:
+---
 
-- 1 teste especifico passou
-- 22 testes da suite passaram
+## 7. Validacoes executadas
 
-## Impacto esperado
+### TOTVS
 
-Depois dessa mudanca:
+- `manage.py test apps.totvs.tests`
+- `manage.py test_totvs_api infra-teste --show-body`
+- `manage.py test_totvs_api infra-teste --set-active true --show-body`
+- `manage.py test_totvs_api infra-teste --set-active false --show-body`
+- `manage.py test_totvs_api pedro.furtado --set-active true --show-body`
 
-1. a primeira sync pode continuar trazendo uma lista inicial grande
-2. o check operacional reduz essa lista para os casos reais
-3. uma nova sync da mesma planilha nao deve recriar automaticamente as mesmas pendencias ja saneadas
+### Block
 
-Isso reduz retrabalho operacional e evita gargalo no processo.
+- `manage.py test apps.block.tests`
+- `manage.py migrate block`
+- `manage.py check`
 
-## Comportamento atual do cache da sincronizacao
+### Bot
 
-Hoje a sincronizacao usa cache local do arquivo baixado da planilha.
+- `manage.py test apps.bot.tests`
+- `manage.py check`
 
-Fluxo atual:
+---
 
-1. a sync verifica se ja existe um arquivo `planilha_*.xlsx` salvo localmente
-2. se esse arquivo ainda estiver dentro da janela de cache configurada, ele e reutilizado
-3. somente quando o cache expira a rotina baixa uma nova planilha
-4. depois disso, o hash do arquivo novo e comparado com o ultimo hash salvo
-5. se o hash mudou, a sync faz o de-para no banco
-6. se o hash nao mudou, a sync e ignorada
+## 8. Observacoes finais
 
-Na pratica, isso significa:
-
-- com cache valido: a job nao busca a planilha remota novamente
-- sem cache valido: a job baixa a planilha de novo
-- planilha diferente: processa
-- planilha igual: pula
-
-### Tempo padrao
-
-O valor padrao atual e `60` minutos.
-
-### Consequencia operacional
-
-Se alguem alterar a planilha remota e a job rodar antes do cache expirar, o sistema ainda pode reutilizar o arquivo local antigo.
-
-Para contornar isso manualmente:
-
-- usar `Forçar novo download` na sincronizacao
-
-### Visibilidade adicionada na tela
-
-Foi adicionada uma exibicao do estado do cache no card principal do modulo block para mostrar:
-
-- status do cache
-- quanto tempo de janela esta configurado
-- quanto falta para expirar
-- ultimo download conhecido
-
-## Limitacoes atuais
-
-Apesar da melhoria, ainda existe uma limitacao de modelagem:
-
-- o sistema ainda usa a mesma tabela de acessos tanto para refletir a planilha quanto para refletir o estado operacional
-
-A nova regra resolveu o problema mais urgente preservando o status forte quando a planilha vier fraca, mas ainda nao separa completamente:
-
-- status importado da planilha
-- status operacional validado no AD
-
-## Proximo passo recomendado
-
-O proximo passo ideal e evoluir a modelagem para separar explicitamente esses dois conceitos.
-
-Sugestao:
-
-1. adicionar campos distintos para `status_planilha` e `status_operacional`
-2. criar um `status_efetivo` para a pre-lista consumir
-3. registrar quando o status operacional foi validado
-4. registrar a origem do status usado na decisao
-
-Beneficios desse proximo passo:
-
-- mais rastreabilidade
-- menos regra implicita na sincronizacao
-- comportamento mais previsivel
-- auditoria mais clara para o time operacional
-
-## Resumo final
-
-Essa mudanca foi feita para impedir que a sincronizacao da planilha recriasse pendencias ja resolvidas pelo check operacional.
-
-O problema estava no fato de a sync apagar e recriar toda a base operacional, sobrescrevendo o estado real com valores incompletos da planilha.
-
-A correcao implementada:
-
-- removeu o comportamento destrutivo
-- criou uma reconciliacao incremental
-- preservou o status operacional confiavel para `AD PRIN` e `VPN`
-- adicionou teste de regressao para garantir que o problema nao volte
+- O `requirements.txt` nao foi atualizado nesta entrega para registrar `keyring`, porque o arquivo do repositório ja estava com problema de codificacao antes.
+- O fluxo do TOTVS ficou funcional no admin, no backend, no modulo `block` e no bot.
+- A regra final combinada foi manter o passado como esta e corrigir progressivamente os proximos lotes.
